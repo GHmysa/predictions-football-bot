@@ -2,35 +2,55 @@ import os
 import requests
 
 
+def _compute_stats(fixtures: list[dict]) -> dict:
+    return {
+        "wins": sum(1 for f in fixtures if f["result"] == "V"),
+        "draws": sum(1 for f in fixtures if f["result"] == "N"),
+        "losses": sum(1 for f in fixtures if f["result"] == "D"),
+        "goals_scored": sum(f["team_goals"] for f in fixtures),
+        "goals_conceded": sum(f["opponent_goals"] for f in fixtures),
+    }
+
+
+def _format_team_block(name: str, role: str, fixtures: list[dict]) -> str:
+    if not fixtures:
+        return f"{name} ({role}) — aucun match récent disponible."
+
+    s = _compute_stats(fixtures)
+    bilan = f"{s['wins']}V {s['draws']}N {s['losses']}D — {s['goals_scored']} buts marqués, {s['goals_conceded']} encaissés"
+
+    results_parts = []
+    for f in fixtures:
+        results_parts.append(f"{f['result']} {f['team_goals']}-{f['opponent_goals']} vs {f['opponent']}")
+    results_line = ", ".join(results_parts)
+
+    return (
+        f"{name} ({role}) — Bilan 5 derniers matchs : {bilan}\n"
+        f"Résultats : {results_line}"
+    )
+
+
 def _build_prompt(
     team1_name: str,
     team1_fixtures: list[dict],
     team2_name: str,
     team2_fixtures: list[dict],
 ) -> str:
-    def format_fixtures(name: str, fixtures: list[dict]) -> str:
-        if not fixtures:
-            return f"{name} : aucun match récent disponible."
-        lines = [f"{name} — 5 derniers matchs :"]
-        for f in fixtures:
-            lines.append(f"  {f['home']} {f['home_goals']} - {f['away_goals']} {f['away']}")
-        return "\n".join(lines)
-
-    context = (
-        f"{format_fixtures(team1_name, team1_fixtures)}\n\n"
-        f"{format_fixtures(team2_name, team2_fixtures)}"
-    )
+    block1 = _format_team_block(team1_name, "Domicile", team1_fixtures)
+    block2 = _format_team_block(team2_name, "Extérieur", team2_fixtures)
 
     return (
-        f"Voici les résultats récents de deux équipes de football :\n\n"
-        f"{context}\n\n"
-        f"En te basant sur ces données, génère un pronostic pour le match "
-        f"{team1_name} (domicile) vs {team2_name} (extérieur).\n"
-        f"Fournis :\n"
-        f"1. Le score prédit\n"
-        f"2. 3 facteurs clés qui justifient ce pronostic\n"
-        f"3. Un niveau de confiance en %\n"
-        f"Réponds en français, de façon concise et formatée pour Discord."
+        f"Tu es un expert en analyse football. Voici les données des deux équipes.\n\n"
+        f"{block1}\n\n"
+        f"{block2}\n\n"
+        f"Réponds UNIQUEMENT avec ce format, sans texte avant ou après :\n"
+        f"🏆 **Score prédit** : X - Y\n"
+        f"📊 **Analyse** :\n"
+        f"• Facteur 1\n"
+        f"• Facteur 2\n"
+        f"• Facteur 3\n"
+        f"🎯 **Confiance** : XX%\n"
+        f"⚡ **À surveiller** : [un élément décisif du match]"
     )
 
 
@@ -81,8 +101,5 @@ def generate_prono(
 
     provider = os.getenv("AI_PROVIDER", "mistral").lower()
     if provider == "claude":
-        text = _call_claude(prompt)
-    else:
-        text = _call_mistral(prompt)
-
-    return text.replace(". ", ".\n")
+        return _call_claude(prompt)
+    return _call_mistral(prompt)
