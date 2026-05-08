@@ -79,3 +79,30 @@ async def fetch_fixtures(team_id: int) -> list[dict]:
         })
 
     return result
+
+
+async def fetch_upcoming_fixtures(league_id: int, season: int) -> list[dict]:
+    """Return the next 10 not-started fixtures for a league, sorted by date asc."""
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{BASE_URL}/fixtures",
+            headers=_headers(),
+            params={"league": league_id, "season": season, "status": "NS", "next": 10},
+        )
+        response.raise_for_status()
+        data = response.json()
+
+    fixtures = data.get("response", [])
+    fixtures.sort(key=lambda f: f["fixture"]["date"])
+
+    return [
+        {
+            "fixture_id": f["fixture"]["id"],
+            "date": f["fixture"]["date"],
+            "home_team": f["teams"]["home"]["name"],
+            "home_team_id": f["teams"]["home"]["id"],
+            "away_team": f["teams"]["away"]["name"],
+            "away_team_id": f["teams"]["away"]["id"],
+        }
+        for f in fixtures[:10]
+    ]

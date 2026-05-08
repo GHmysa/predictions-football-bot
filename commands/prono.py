@@ -2,6 +2,7 @@ import discord
 from discord import app_commands
 from services.api_football import search_teams, fetch_fixtures
 from services.ai_call import generate_prono
+import database
 
 
 # — Select Menu helpers —
@@ -69,6 +70,14 @@ class PronoSelectView(discord.ui.View):
 # — Core logic —
 
 async def _run_prono(interaction: discord.Interaction, home: dict, away: dict):
+    fixture_id = home["id"] * 100000 + away["id"]
+    header = f"**Pronostic : {home['name']} vs {away['name']}**\n\n"
+
+    cached = database.get_cached_prono(fixture_id)
+    if cached:
+        await interaction.followup.send(header + cached)
+        return
+
     home_fixtures, away_fixtures = (
         await fetch_fixtures(home["id"]),
         await fetch_fixtures(away["id"]),
@@ -80,7 +89,7 @@ async def _run_prono(interaction: discord.Interaction, home: dict, away: dict):
         await interaction.followup.send(f"❌ Erreur lors de la génération du pronostic : {e}")
         return
 
-    header = f"**Pronostic : {home['name']} vs {away['name']}**\n\n"
+    database.save_prono(fixture_id, home["name"], away["name"], result)
     await interaction.followup.send(header + result)
 
 
