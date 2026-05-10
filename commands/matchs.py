@@ -60,15 +60,17 @@ class MatchSelectView(discord.ui.View):
 @app_commands.command(name="matchs", description="Affiche les prochains matchs d'une ligue et génère un pronostic")
 @app_commands.describe(ligue="Ligue à consulter")
 @app_commands.choices(ligue=[
-    app_commands.Choice(name="Ligue 1", value=61),
-    app_commands.Choice(name="Premier League", value=39),
-    app_commands.Choice(name="Liga", value=140),
-    app_commands.Choice(name="Champions League", value=2),
+    app_commands.Choice(name="Ligue 1", value="FL1"),
+    app_commands.Choice(name="Premier League", value="PL"),
+    app_commands.Choice(name="Liga", value="PD"),
+    app_commands.Choice(name="Bundesliga", value="BL1"),
+    app_commands.Choice(name="Serie A", value="SA"),
+    app_commands.Choice(name="Champions League", value="CL"),
 ])
-async def matchs(interaction: discord.Interaction, ligue: app_commands.Choice[int]):
+async def matchs(interaction: discord.Interaction, ligue: app_commands.Choice[str]):
     await interaction.response.defer()
 
-    fixtures = await fetch_upcoming_fixtures(ligue.value, 2024)
+    fixtures = await fetch_upcoming_fixtures(ligue.value)
 
     if not fixtures:
         await interaction.followup.send(f"Aucun match à venir trouvé pour **{ligue.name}**.")
