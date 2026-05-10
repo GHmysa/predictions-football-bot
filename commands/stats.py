@@ -1,9 +1,19 @@
 import discord
 from discord import app_commands
 from datetime import datetime
-from services.api_football import search_teams, fetch_fixtures
+from services.api_football import fetch_competition_teams, fetch_fixtures
+import database
 
 _RESULT_EMOJI = {"V": "✅", "N": "➖", "D": "❌"}
+
+
+async def _get_teams(competition_code: str) -> list[dict]:
+    cached = database.get_cached_teams(competition_code)
+    if cached is not None:
+        return cached
+    teams = await fetch_competition_teams(competition_code)
+    database.save_teams(competition_code, teams)
+    return teams
 
 
 def _format_fixture(f: dict) -> str:
@@ -44,31 +54,27 @@ def _build_response(team_name: str, fixtures: list[dict]) -> str:
     return "\n".join(lines)
 
 
-async def _send_fixtures(interaction: discord.Interaction, team_id: int, team_name: str):
-    fixtures = await fetch_fixtures(team_id)
-    if not fixtures:
-        await interaction.response.send_message(
-            f"Aucun match terminé trouvé pour **{team_name}**.", ephemeral=True
-        )
-        return
-    await interaction.response.send_message(_build_response(team_name, fixtures))
-
-
 class TeamSelect(discord.ui.Select):
     def __init__(self, teams: list[dict]):
+        self._teams = {str(t["id"]): t["name"] for t in teams}
         options = [
-            discord.SelectOption(
-                label=t["name"],
-                description=t["country"] or "—",
-                value=str(t["id"]),
-            )
+            discord.SelectOption(label=t["name"], value=str(t["id"]))
             for t in teams[:25]
         ]
         super().__init__(placeholder="Choisissez une équipe…", options=options)
-        self._teams = {str(t["id"]): t["name"] for t in teams}
 
     async def callback(self, interaction: discord.Interaction):
-        await _send_fixtures(interaction, int(self.values[0]), self._teams[self.values[0]])
+        team_id = int(self.values[0])
+        team_name = self._teams[self.values[0]]
+        fixtures = await fetch_fixtures(team_id)
+        if not fixtures:
+            await interaction.response.edit_message(
+                content=f"Aucun match terminé trouvé pour **{team_name}**.", view=None
+            )
+            return
+        await interaction.response.edit_message(
+            content=_build_response(team_name, fixtures), view=None
+        )
 
 
 class TeamSelectView(discord.ui.View):
@@ -78,27 +84,27 @@ class TeamSelectView(discord.ui.View):
 
 
 @app_commands.command(name="stats", description="Affiche les 5 derniers matchs d'une équipe")
-@app_commands.describe(equipe="Nom de l'équipe à rechercher")
-async def stats(interaction: discord.Interaction, equipe: str):
+@app_commands.describe(ligue="Ligue à consulter")
+@app_commands.choices(ligue=[
+    app_commands.Choice(name="Ligue 1",          value="FL1"),
+    app_commands.Choice(name="Premier League",   value="PL"),
+    app_commands.Choice(name="Liga",             value="PD"),
+    app_commands.Choice(name="Bundesliga",       value="BL1"),
+    app_commands.Choice(name="Serie A",          value="SA"),
+    app_commands.Choice(name="Champions League", value="CL"),
+])
+async def stats(interaction: discord.Interaction, ligue: app_commands.Choice[str]):
     await interaction.response.defer()
 
-    teams = await search_teams(equipe)
+    teams = await _get_teams(ligue.value)
     if not teams:
-        await interaction.followup.send(f"Aucune équipe trouvée pour **{equipe}**.")
+        await interaction.followup.send(f"Aucune équipe trouvée pour **{ligue.name}**.")
         return
 
-    if len(teams) == 1:
-        t = teams[0]
-        fixtures = await fetch_fixtures(t["id"])
-        if not fixtures:
-            await interaction.followup.send(f"Aucun match terminé trouvé pour **{t['name']}**.")
-            return
-        await interaction.followup.send(_build_response(t["name"], fixtures))
-        return
-
+    teams_sorted = sorted(teams, key=lambda t: t["name"])
+    view = TeamSelectView(teams_sorted)
     await interaction.followup.send(
-        f"Plusieurs équipes trouvées pour **{equipe}**, sélectionnez-en une :",
-        view=TeamSelectView(teams),
+        f"**{ligue.name}** — Choisissez une équipe :", view=view
     )
 
 

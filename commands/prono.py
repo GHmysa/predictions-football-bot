@@ -29,8 +29,11 @@ class MatchSelect(discord.ui.Select):
         away = fixture["away_team"]
         header = f"**Pronostic : {home} vs {away}**\n\n"
 
+        print(f"[PRONO] Match sélectionné : {home} vs {away} (fixture_id={fixture_id})")
+
         cached = database.get_cached_prono(fixture_id)
         if cached:
+            print(f"[PRONO] Cache hit — envoi direct")
             await interaction.response.edit_message(
                 content=f"**Pronostic (cache) : {home} vs {away}**\n\n{cached}", view=None
             )
@@ -38,12 +41,20 @@ class MatchSelect(discord.ui.Select):
 
         await interaction.response.edit_message(content="⏳ Génération du pronostic…", view=None)
 
+        print(f"[PRONO] Fetch fixtures domicile (id={fixture['home_team_id']})")
         home_fixtures = await fetch_fixtures(fixture["home_team_id"])
-        away_fixtures = await fetch_fixtures(fixture["away_team_id"])
+        print(f"[PRONO] {len(home_fixtures)} matchs récupérés pour {home}")
 
+        print(f"[PRONO] Fetch fixtures extérieur (id={fixture['away_team_id']})")
+        away_fixtures = await fetch_fixtures(fixture["away_team_id"])
+        print(f"[PRONO] {len(away_fixtures)} matchs récupérés pour {away}")
+
+        print(f"[PRONO] Appel generate_prono...")
         try:
             result = generate_prono(home, home_fixtures, away, away_fixtures)
+            print(f"[PRONO] Réponse reçue ({len(result)} caractères)")
         except Exception as e:
+            print(f"[PRONO] Erreur generate_prono : {e}")
             await interaction.followup.send(f"❌ Erreur lors de la génération du pronostic : {e}")
             return
 
@@ -57,28 +68,30 @@ class MatchSelectView(discord.ui.View):
         self.add_item(MatchSelect(fixtures))
 
 
-@app_commands.command(name="matchs", description="Affiche les prochains matchs d'une ligue et génère un pronostic")
+@app_commands.command(name="prono", description="Génère un pronostic IA pour un match à venir")
 @app_commands.describe(ligue="Ligue à consulter")
 @app_commands.choices(ligue=[
-    app_commands.Choice(name="Ligue 1", value="FL1"),
-    app_commands.Choice(name="Premier League", value="PL"),
-    app_commands.Choice(name="Liga", value="PD"),
-    app_commands.Choice(name="Bundesliga", value="BL1"),
-    app_commands.Choice(name="Serie A", value="SA"),
+    app_commands.Choice(name="Ligue 1",          value="FL1"),
+    app_commands.Choice(name="Premier League",   value="PL"),
+    app_commands.Choice(name="Liga",             value="PD"),
+    app_commands.Choice(name="Bundesliga",       value="BL1"),
+    app_commands.Choice(name="Serie A",          value="SA"),
     app_commands.Choice(name="Champions League", value="CL"),
 ])
-async def matchs(interaction: discord.Interaction, ligue: app_commands.Choice[str]):
+async def prono(interaction: discord.Interaction, ligue: app_commands.Choice[str]):
     await interaction.response.defer()
+    print(f"[PRONO] /prono déclenché — ligue={ligue.value}")
 
     fixtures = await fetch_upcoming_fixtures(ligue.value)
+    print(f"[PRONO] {len(fixtures)} matchs à venir récupérés pour {ligue.name}")
 
     if not fixtures:
         await interaction.followup.send(f"Aucun match à venir trouvé pour **{ligue.name}**.")
         return
 
     view = MatchSelectView(fixtures)
-    await interaction.followup.send(f"**{ligue.name}** — Prochains matchs :", view=view)
+    await interaction.followup.send(f"**{ligue.name}** — Choisissez un match :", view=view)
 
 
 def setup(tree: app_commands.CommandTree):
-    tree.add_command(matchs)
+    tree.add_command(prono)

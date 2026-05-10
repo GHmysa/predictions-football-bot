@@ -18,7 +18,29 @@ def _check_rate_limit(response: httpx.Response) -> None:
         raise RateLimitError("Limite de requêtes atteinte (10/min). Réessayez dans une minute.")
 
 
+async def fetch_competition_teams(competition_code: str) -> list[dict]:
+    """Return all teams in a competition (used to build the local search cache)."""
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{BASE_URL}/competitions/{competition_code}/teams",
+            headers=_headers(),
+        )
+        response.raise_for_status()
+        _check_rate_limit(response)
+        data = response.json()
+
+    return [
+        {
+            "id": t["id"],
+            "name": t["name"],
+            "country": t.get("area", {}).get("name", "—"),
+        }
+        for t in data.get("teams", [])
+    ]
+
+
 async def search_teams(name: str) -> list[dict]:
+    """Kept for fallback text search — not reliable on the free plan."""
     async with httpx.AsyncClient() as client:
         response = await client.get(
             f"{BASE_URL}/teams",

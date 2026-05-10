@@ -19,6 +19,13 @@ def init_db():
                 created_at  TEXT NOT NULL
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS teams_cache (
+                competition_code TEXT PRIMARY KEY,
+                teams_json       TEXT NOT NULL,
+                cached_at        TEXT NOT NULL
+            )
+        """)
 
 
 def get_cached_prono(fixture_id: int) -> str | None:
@@ -48,6 +55,38 @@ def save_prono(fixture_id: int, team1: str, team2: str, result_text: str):
                 created_at  = excluded.created_at
             """,
             (fixture_id, team1, team2, result_text, now),
+        )
+
+
+def get_cached_teams(competition_code: str) -> list | None:
+    import json
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT teams_json, cached_at FROM teams_cache WHERE competition_code = ?",
+            (competition_code,),
+        ).fetchone()
+    if row is None:
+        return None
+    teams_json, cached_at_str = row
+    cached_at = datetime.fromisoformat(cached_at_str)
+    if datetime.now(timezone.utc) - cached_at > timedelta(hours=24):
+        return None
+    return json.loads(teams_json)
+
+
+def save_teams(competition_code: str, teams: list) -> None:
+    import json
+    now = datetime.now(timezone.utc).isoformat()
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO teams_cache (competition_code, teams_json, cached_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(competition_code) DO UPDATE SET
+                teams_json = excluded.teams_json,
+                cached_at  = excluded.cached_at
+            """,
+            (competition_code, json.dumps(teams), now),
         )
 
 
