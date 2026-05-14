@@ -57,7 +57,7 @@ def get_cached_prono(fixture_id: int) -> str | None:
         return None
     result_text, created_at_str = row
     created_at = datetime.fromisoformat(created_at_str)
-    if datetime.now(timezone.utc) - created_at > timedelta(hours=24):
+    if datetime.now(timezone.utc) - created_at > timedelta(days=30):
         return None
     return result_text
 
