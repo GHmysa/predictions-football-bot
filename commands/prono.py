@@ -1,3 +1,4 @@
+import re
 import discord
 from discord import app_commands
 from datetime import datetime
@@ -6,9 +7,20 @@ from services.ai_call import generate_prono
 import database
 
 
+def _parse_score(text: str) -> tuple[int, int] | None:
+    """Extract the first 'X - Y' score from the AI response."""
+    for line in text.split("\n"):
+        if "Score" in line or "⚽" in line:
+            m = re.search(r"(\d+)\s*[-–]\s*(\d+)", line)
+            if m:
+                return int(m.group(1)), int(m.group(2))
+    return None
+
+
 class MatchSelect(discord.ui.Select):
-    def __init__(self, fixtures: list[dict]):
+    def __init__(self, fixtures: list[dict], competition: str):
         self._fixtures = {str(f["fixture_id"]): f for f in fixtures}
+        self._competition = competition
         options = []
         for f in fixtures:
             date = datetime.fromisoformat(f["date"]).strftime("%d/%m %H:%M")
@@ -59,13 +71,22 @@ class MatchSelect(discord.ui.Select):
             return
 
         database.save_prono(fixture_id, home, away, result)
+
+        score = _parse_score(result)
+        if score:
+            pred_home, pred_away = score
+            database.save_prediction(fixture_id, self._competition, home, away, pred_home, pred_away)
+            print(f"[PRONO] Prédiction enregistrée : {home} {pred_home}-{pred_away} {away}")
+        else:
+            print(f"[PRONO] Score non parsé — prédiction non enregistrée")
+
         await interaction.followup.send(header + result)
 
 
 class MatchSelectView(discord.ui.View):
-    def __init__(self, fixtures: list[dict]):
+    def __init__(self, fixtures: list[dict], competition: str):
         super().__init__(timeout=120)
-        self.add_item(MatchSelect(fixtures))
+        self.add_item(MatchSelect(fixtures, competition))
 
 
 @app_commands.command(name="prono", description="Génère un pronostic IA pour un match à venir")
@@ -89,7 +110,7 @@ async def prono(interaction: discord.Interaction, ligue: app_commands.Choice[str
         await interaction.followup.send(f"Aucun match à venir trouvé pour **{ligue.name}**.")
         return
 
-    view = MatchSelectView(fixtures)
+    view = MatchSelectView(fixtures, ligue.value)
     await interaction.followup.send(f"**{ligue.name}** — Choisissez un match :", view=view)
 
 

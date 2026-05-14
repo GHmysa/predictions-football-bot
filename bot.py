@@ -1,3 +1,4 @@
+import asyncio
 import os
 from dotenv import load_dotenv
 
@@ -5,8 +6,11 @@ load_dotenv()
 
 import discord
 from discord import app_commands
+from discord.ext import tasks
 from commands.stats import setup as setup_stats
 from commands.prono import setup as setup_prono
+from commands.accuracy import setup as setup_accuracy
+from services.resolver import resolve_pending_predictions
 import database
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
@@ -18,16 +22,21 @@ tree = app_commands.CommandTree(client)
 
 setup_stats(tree)
 setup_prono(tree)
+setup_accuracy(tree)
+
+
+@tasks.loop(hours=1)
+async def auto_resolve():
+    print("[RESOLVER] Lancement du job de résolution automatique…")
+    await asyncio.to_thread(resolve_pending_predictions)
 
 
 @client.event
 async def on_ready():
     if GUILD_ID:
         guild = discord.Object(id=int(GUILD_ID))
-        # Copie d'abord les commandes vers le guild
         tree.copy_global_to(guild=guild)
         synced = await tree.sync(guild=guild)
-        # Puis vide les commandes globales sur Discord (supprime les doublons)
         tree.clear_commands(guild=None)
         await tree.sync()
         print(f"[SYNC] {len(synced)} commandes synced sur le guild :")
@@ -36,6 +45,8 @@ async def on_ready():
     else:
         synced = await tree.sync()
         print(f"[SYNC] {len(synced)} commandes synced globalement")
+
+    auto_resolve.start()
     print(f"Connecté en tant que {client.user}")
 
 
