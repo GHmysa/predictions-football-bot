@@ -42,15 +42,18 @@ def _resolve_name(fdorg_name: str) -> str:
     return _FDORG_TO_FIXTURE.get(fdorg_name, fdorg_name)
 
 
-def _build_fixture_lookup() -> dict[tuple[str, str], int]:
+def _build_fixture_lookup() -> dict[tuple[str, str], dict]:
     """
-    Construit un dict (home_team, away_team) → match_id depuis wc2026_fixtures.csv.
+    Construit un dict (home_team, away_team) → {match_id, date} depuis wc2026_fixtures.csv.
     Seuls les matchs du groupe stage ont des équipes connues.
     """
     df = pd.read_csv(FIXTURES_PATH)
     group_stage = df[df["stage"] == "Group Stage"]
     return {
-        (row["home_team"], row["away_team"]): MATCH_ID_OFFSET + int(row["match_number"])
+        (row["home_team"], row["away_team"]): {
+            "match_id":  MATCH_ID_OFFSET + int(row["match_number"]),
+            "match_date": row["date"],
+        }
         for _, row in group_stage.iterrows()
     }
 
@@ -86,8 +89,11 @@ def resolve_wc_predictions() -> None:
     Pour chaque match WC terminé dans l'API :
     1. Traduit les noms d'équipes vers nos noms de fixtures
     2. Retrouve le match_id dans notre table de fixtures
-    3. Si une prédiction DB est en attente pour ce match, la résout
+    3. Si une prédiction DB est en attente, la résout
+    4. Met à jour l'ELO des deux équipes pour les prochaines prédictions
     """
+    from services.elo_updater import update_elo_with_match
+
     pending = {p["match_id"] for p in database.get_pending_predictions()}
     if not pending:
         print("[WC RESOLVER] Aucune prédiction en attente.")
@@ -95,7 +101,12 @@ def resolve_wc_predictions() -> None:
 
     fixture_lookup = _build_fixture_lookup()
     matches        = _fetch_wc_matches()
-    finished       = [m for m in matches if m.get("status") == "FINISHED"]
+
+    # Trier par date pour que les mises à jour ELO soient chronologiquement correctes
+    finished = sorted(
+        [m for m in matches if m.get("status") == "FINISHED"],
+        key=lambda m: m.get("utcDate", ""),
+    )
 
     print(f"[WC RESOLVER] {len(pending)} en attente | {len(finished)} matchs terminés dans l'API")
 
@@ -107,11 +118,9 @@ def resolve_wc_predictions() -> None:
         home_fixture = _resolve_name(home_fdorg)
         away_fixture = _resolve_name(away_fdorg)
 
-        match_id = fixture_lookup.get((home_fixture, away_fixture))
+        fixture_info = fixture_lookup.get((home_fixture, away_fixture))
 
-        if match_id is None:
-            # Peut arriver si le nom n'est pas dans _FDORG_TO_FIXTURE
-            # ou si c'est un match de phase éliminatoire (TBD)
+        if fixture_info is None:
             if home_fdorg and away_fdorg:
                 print(
                     f"[WC RESOLVER] Mapping manquant : "
@@ -121,8 +130,8 @@ def resolve_wc_predictions() -> None:
                 )
             continue
 
-        if match_id not in pending:
-            continue  # Déjà résolu
+        match_id   = fixture_info["match_id"]
+        match_date = fixture_info["match_date"]
 
         score    = match.get("score", {}).get("fullTime", {})
         actual_h = score.get("home")
@@ -132,13 +141,28 @@ def resolve_wc_predictions() -> None:
             print(f"[WC RESOLVER] Score fullTime manquant pour {home_fixture} vs {away_fixture}")
             continue
 
-        database.resolve_prediction(match_id, actual_h, actual_a)
+        # Résoudre la prédiction DB si elle est en attente
+        if match_id in pending:
+            database.resolve_prediction(match_id, actual_h, actual_a)
+            result_str = "H" if actual_h > actual_a else ("D" if actual_h == actual_a else "A")
+            print(
+                f"[WC RESOLVER] ✅ Résolu : {home_fixture} {actual_h}-{actual_a} {away_fixture} "
+                f"({result_str})"
+            )
+            resolved += 1
 
-        result_str = "H" if actual_h > actual_a else ("D" if actual_h == actual_a else "A")
-        print(
-            f"[WC RESOLVER] ✅ Résolu : {home_fixture} {actual_h}-{actual_a} {away_fixture} "
-            f"({result_str})"
-        )
-        resolved += 1
+        # Mettre à jour l'ELO dans tous les cas (même si la prédiction était déjà résolue)
+        # pour que wc_elo_updates.csv reste complet en cas de redémarrage du bot
+        wc_elo_path = Path(__file__).parent.parent / "ml" / "data" / "wc_elo_updates.csv"
+        already_updated = False
+        if wc_elo_path.exists() and wc_elo_path.stat().st_size > 0:
+            existing = pd.read_csv(wc_elo_path)
+            already_updated = (
+                (existing["team"].isin([home_fixture, away_fixture])) &
+                (existing["date"] == match_date)
+            ).any()
+
+        if not already_updated:
+            update_elo_with_match(home_fixture, away_fixture, actual_h, actual_a, match_date)
 
     print(f"[WC RESOLVER] {resolved} prédiction(s) résolue(s) ce cycle.")

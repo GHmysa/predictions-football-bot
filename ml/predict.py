@@ -46,13 +46,26 @@ def _model():
 
 @lru_cache(maxsize=1)
 def _data() -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Retourne (results, elo_history) triés par date."""
+    """
+    Retourne (results, elo_history) triés par date.
+
+    Fusionne elo_history.csv (données historiques immuables) avec
+    wc_elo_updates.csv (delta des matchs CdM joués) si ce fichier existe.
+    Appelé une fois par process ; le cache est invalidé par elo_updater.py
+    après chaque mise à jour pour forcer le rechargement.
+    """
     results = (
         pd.read_csv(DATA_DIR / "results.csv", parse_dates=["date"])
         .sort_values("date")
         .reset_index(drop=True)
     )
     elo = pd.read_csv(DATA_DIR / "elo_history.csv", parse_dates=["date"])
+
+    wc_elo_path = DATA_DIR / "wc_elo_updates.csv"
+    if wc_elo_path.exists() and wc_elo_path.stat().st_size > 0:
+        wc_elo = pd.read_csv(wc_elo_path, parse_dates=["date"])
+        elo = pd.concat([elo, wc_elo], ignore_index=True).sort_values(["team", "date"])
+
     return results, elo
 
 
