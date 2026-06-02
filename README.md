@@ -1,124 +1,163 @@
-# ⚽ Discord Football Bot
+# ⚽ Football Prediction Bot — CdM 2026
 
-A Discord bot that delivers real-time football statistics and AI-generated match predictions directly in your server. Powered by the football-data.org API for live data and Mistral AI (with Claude as a production fallback) for analytical predictions.
+Bot Discord de prédiction de matchs de football avec pipeline ML complet, construit comme projet portfolio ML Engineer.
+
+Le bot prédit les résultats des matchs de la **Coupe du Monde 2026** à l'aide d'un modèle XGBoost entraîné sur 150 ans de matchs internationaux.
 
 ---
 
-## Commands
+## Commandes Discord
 
-| Command | Description |
+| Commande | Description |
 |---|---|
-| `/stats <league>` | Browse teams from a league via a select menu and display their last 5 results with a form summary (W/D/L, goals, trend) |
-| `/prono <league>` | Browse upcoming fixtures from a league and generate an AI-powered match prediction with stats and confidence score |
-
-### League options (both commands)
-`Ligue 1` · `Premier League` · `Liga` · `Bundesliga` · `Serie A` · `Champions League`
+| `/prono groupe:X` | Sélecteur de match pour un groupe CdM 2026 (A→L) → prédiction ML avec probabilités |
+| `/stats ligue:X` | Statistiques d'une équipe en club (5 derniers matchs, forme) |
+| `/accuracy` | Précision globale des prédictions enregistrées en base |
 
 ---
 
-## Tech Stack
+## Pipeline ML
 
-| Layer | Technology |
-|---|---|
-| Bot framework | [discord.py](https://github.com/Rapptz/discord.py) 2.x |
-| Football data | [football-data.org](https://www.football-data.org/) v4 API |
-| AI predictions | [Mistral AI](https://mistral.ai/) (`mistral-large-latest`) / [Anthropic Claude](https://www.anthropic.com/) (`claude-sonnet-4`) |
-| Database | SQLite via `sqlite3` (prediction cache + team cache) |
-| HTTP client | `httpx` (async) · `requests` (sync AI calls) |
-| Runtime | Python 3.12+ |
-
----
-
-## Installation
-
-### 1. Clone the repository
-
-```bash
-git clone https://github.com/your-username/discord-football-bot.git
-cd discord-football-bot
+```
+ml/data/results.csv          (Mart Jürisoo — matchs internationaux 1872→2024)
+         │
+         ▼
+ml/features.py    →  ELO chronologique + forme 5 matchs + H2H  →  features.csv
+         │
+         ▼
+ml/train.py       →  XGBoost  (train <2018 / val 2018-2021 / test 2022-2024)  →  model.pkl
+         │
+         ▼
+ml/run_wc2026.py  →  72 matchs du groupe stage  →  wc2026_predictions.csv
 ```
 
-### 2. Install dependencies
-
+**Lancer le pipeline complet :**
 ```bash
-pip install discord.py httpx requests python-dotenv
+python -m ml.pipeline           # skip si model.pkl existe déjà
+python -m ml.pipeline --force   # tout recalculer
 ```
 
-### 3. Configure environment variables
+### Features
 
-Copy the example below into a `.env` file at the project root and fill in your keys:
+| Feature | Description |
+|---|---|
+| `elo_home / elo_away / elo_diff` | ELO calculé depuis 1872 avec K variable (40 CdM / 30 qualif / 20 amical) |
+| `home/away_form_pts/gf/ga/n` | Forme sur les 5 derniers matchs (taux de victoire, buts marqués/encaissés) |
+| `h2h_home_pts / h2h_gd / h2h_n` | Historique des 5 derniers duels directs |
+| `is_neutral` | 1 pour tous les matchs CdM (terrain neutre) |
+| `tournament_tier` | 4=CdM, 3=Continental, 2=Qualification, 1=Amical |
+
+### Évaluation
+
+Split temporel strict (pas de shuffle sur séries temporelles) :
+- **Baseline** : règle naïve ELO (prédit toujours le favori ELO)
+- **XGBoost** : accuracy + log-loss sur le set de test 2022-2024
+- Métriques complètes dans `ml/metrics.json`
+
+---
+
+## Stack technique
+
+| Couche | Technologie |
+|---|---|
+| Bot Discord | discord.py 2.3.2 |
+| ML | XGBoost 2.0.3 · scikit-learn 1.4.0 |
+| Data | pandas 2.2.0 · Mart Jürisoo dataset |
+| HTTP async | httpx 0.27.2 |
+| Base de données | SQLite (prédictions + cache) |
+| Hébergement | Railway |
+| Runtime | Python 3.12 |
+
+---
+
+## Structure du projet
+
+```
+predictions-football-bot/
+├── bot.py                       # Point d'entrée Discord
+├── database.py                  # SQLite — cache pronos, prédictions, stats
+│
+├── commands/
+│   ├── prono.py                 # /prono — sélecteur groupe CdM → prédiction ML
+│   ├── stats.py                 # /stats — stats équipe club
+│   └── accuracy.py              # /accuracy — précision historique
+│
+├── services/
+│   ├── ml_model.py              # Wrapper ML → message Discord formaté
+│   ├── api_football.py          # Client football-data.org (stats clubs)
+│   ├── ai_call.py               # Claude / Mistral (non utilisé pour CdM)
+│   └── resolver.py              # Job horaire — résolution des prédictions passées
+│
+└── ml/
+    ├── pipeline.py              # Orchestrateur : features → train → prédictions
+    ├── features.py              # Feature engineering (ELO, forme, H2H)
+    ├── train.py                 # Entraînement XGBoost + évaluation
+    ├── predict.py               # Inférence sur un match unique
+    ├── run_wc2026.py            # Prédictions batch groupe stage CdM 2026
+    ├── model.pkl                # Modèle sérialisé (requis par le bot)
+    ├── metrics.json             # Métriques d'évaluation
+    └── data/
+        ├── results.csv          # Dataset Mart Jürisoo (1872→2024)
+        ├── elo_history.csv      # ELO calculé après chaque match
+        ├── wc2026_fixtures.csv  # Calendrier officiel CdM 2026
+        ├── wc2026_teams.csv     # Mapping noms FIFA → dataset
+        └── wc2026_predictions.csv  # Prédictions groupe stage
+```
+
+---
+
+## Installation locale
+
+### 1. Cloner et installer les dépendances
+
+```bash
+git clone <repo>
+cd predictions-football-bot
+python -m venv .venv
+.venv\Scripts\activate      # Windows
+pip install -r requirements.txt
+```
+
+### 2. Variables d'environnement
+
+Créer un fichier `.env` :
 
 ```env
 DISCORD_TOKEN=your_discord_bot_token
-GUILD_ID=your_discord_server_id        # optional — enables instant command sync during development
+GUILD_ID=your_discord_server_id
 
 FOOTBALL_DATA_KEY=your_football_data_org_key
 
-MISTRAL_API_KEY=your_mistral_api_key
-ANTHROPIC_API_KEY=your_anthropic_api_key
-
-AI_PROVIDER=mistral                    # set to "claude" for production
+MISTRAL_API_KEY=your_mistral_api_key       # optionnel
+ANTHROPIC_API_KEY=your_anthropic_api_key   # optionnel
+AI_PROVIDER=mistral
 ```
 
-| Variable | Where to get it |
-|---|---|
-| `DISCORD_TOKEN` | [discord.com/developers/applications](https://discord.com/developers/applications) → Bot → Reset Token |
-| `GUILD_ID` | Discord app → Settings → Enable Developer Mode → right-click your server → Copy Server ID |
-| `FOOTBALL_DATA_KEY` | [football-data.org/client/register](https://www.football-data.org/client/register) |
-| `MISTRAL_API_KEY` | [console.mistral.ai](https://console.mistral.ai/) |
-| `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com/) |
+### 3. Entraîner le modèle (première fois)
 
-### 4. Invite the bot to your server
+```bash
+python -m ml.pipeline
+```
 
-In the Discord Developer Portal, go to **OAuth2 → URL Generator**, select the `bot` and `applications.commands` scopes, grant **Send Messages** and **Use Slash Commands** permissions, then open the generated URL.
-
-### 5. Run
+### 4. Lancer le bot
 
 ```bash
 python bot.py
 ```
 
-On first start the bot syncs slash commands to your guild (instant if `GUILD_ID` is set) and initialises the SQLite database (`football.db`).
+---
+
+## Limites connues
+
+| Limite | Détail |
+|---|---|
+| **Modèle figé** | L'ELO et la forme ne se mettent pas à jour pendant la CdM. Pour intégrer les résultats en cours : ajouter les matchs à `results.csv` puis `python -m ml.pipeline --force` |
+| **Résolution WC automatique** | `resolver.py` interroge football-data.org — les matchs CdM (IDs 200001+) n'y sont pas. Les prédictions WC ne s'auto-résolvent pas via `/accuracy` |
+| **Phases éliminatoires** | `/prono` ne couvre que le groupe stage (équipes TBD pour le reste) |
+| **Pas de prédiction de score** | Le modèle prédit H/D/A, pas un score exact |
 
 ---
 
-## Project Structure
-
-```
-discord-football-bot/
-├── bot.py                  # Entry point — client setup, command registration, sync
-├── database.py             # SQLite helpers — prediction cache + team cache (24h TTL)
-├── commands/
-│   ├── stats.py            # /stats — league picker → team select → form report
-│   └── prono.py            # /prono — league picker → fixture select → AI prediction
-└── services/
-    ├── api_football.py     # football-data.org client (teams, fixtures, upcoming matches)
-    └── ai_call.py          # AI provider abstraction (Mistral / Claude)
-```
-
----
-
-## Caching
-
-The bot uses SQLite to avoid redundant API calls:
-
-| Cache | TTL | What is stored |
-|---|---|---|
-| `teams_cache` | 24 hours | Team roster per competition code |
-| `prono_cache` | 24 hours | AI prediction per fixture ID |
-
----
-
-## Roadmap
-
-- [ ] **Premium tier via Stripe** — limit free users to N predictions/day, unlock unlimited access with a subscription
-- [ ] **Railway deployment** — one-click cloud hosting with persistent SQLite volume and environment variable management
-- [ ] **Head-to-head history** — enrich predictions with historical results between the two teams
-- [ ] **Multi-language support** — French / English toggle per server
-- [ ] **Webhook alerts** — notify a channel automatically when a prediction is available for tonight's matches
-
----
-
-## License
+## Licence
 
 MIT

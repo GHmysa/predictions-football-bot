@@ -1,118 +1,134 @@
-import re
-import discord
-from discord import app_commands
+"""
+commands/prono.py — Commande /prono CdM 2026 avec prédictions ML.
+
+UX : /prono groupe:A → sélecteur de match → prédiction ML avec barres de probabilité.
+Remplace l'ancien comportement IA + football-data.org.
+"""
+from __future__ import annotations
+
+import asyncio
 from datetime import datetime
-from services.api_football import fetch_upcoming_fixtures, fetch_fixtures
-from services.ai_call import generate_prono
+from functools import lru_cache
+from pathlib import Path
+
+import discord
+import pandas as pd
+from discord import app_commands
+
 import database
+from ml.predict import predict_match
+from services.ml_model import format_result
+
+FIXTURES_PATH  = Path(__file__).parent.parent / "ml" / "data" / "wc2026_fixtures.csv"
+WC_COMPETITION = "WC2026"
+
+# Préfixe pour les match_id en DB : évite toute collision avec les IDs football-data.org
+# Les match_numbers CdM vont de 1 à 104 → IDs DB : 200001–200104
+MATCH_ID_OFFSET = 200_000
 
 
-def _parse_score(text: str) -> tuple[int, int] | None:
-    """Extract the first 'X - Y' score from the AI response."""
-    for line in text.split("\n"):
-        if "Score" in line or "⚽" in line:
-            m = re.search(r"(\d+)\s*[-–]\s*(\d+)", line)
-            if m:
-                return int(m.group(1)), int(m.group(2))
-    return None
+@lru_cache(maxsize=1)
+def _fixtures() -> pd.DataFrame:
+    """Charge les fixtures groupe stage une seule fois."""
+    df = pd.read_csv(FIXTURES_PATH)
+    return df[df["stage"] == "Group Stage"].copy()
+
+
+def _group_matches(group: str) -> list[dict]:
+    """Retourne les matchs d'un groupe triés par date."""
+    return (
+        _fixtures()[_fixtures()["group"] == group]
+        .sort_values("date")
+        .to_dict("records")
+    )
 
 
 class MatchSelect(discord.ui.Select):
-    def __init__(self, fixtures: list[dict], competition: str):
-        self._fixtures = {str(f["fixture_id"]): f for f in fixtures}
-        self._competition = competition
+    def __init__(self, matches: list[dict], group: str):
+        self._matches = {str(m["match_number"]): m for m in matches}
         options = []
-        for f in fixtures:
-            date = datetime.fromisoformat(f["date"]).strftime("%d/%m %H:%M")
-            label = f"{f['home_team']} vs {f['away_team']}"
-            options.append(
-                discord.SelectOption(
-                    label=label[:100],
-                    description=date,
-                    value=str(f["fixture_id"]),
-                )
-            )
-        super().__init__(placeholder="Choisissez un match pour le pronostic…", options=options)
+        for m in matches:
+            date_fr = datetime.strptime(m["date"], "%Y-%m-%d").strftime("%d/%m")
+            venue   = m["venue"].replace(" Stadium", "")
+            options.append(discord.SelectOption(
+                label=f"{m['home_team']} vs {m['away_team']}"[:100],
+                description=f"{date_fr}  •  {venue}"[:100],
+                value=str(m["match_number"]),
+            ))
+        super().__init__(
+            placeholder=f"Groupe {group} — choisissez un match…",
+            options=options,
+        )
 
-    async def callback(self, interaction: discord.Interaction):
-        fixture = self._fixtures[self.values[0]]
-        fixture_id = fixture["fixture_id"]
-        home = fixture["home_team"]
-        away = fixture["away_team"]
-        header = f"**Pronostic : {home} vs {away}**\n\n"
+    async def callback(self, interaction: discord.Interaction) -> None:
+        match   = self._matches[self.values[0]]
+        home    = match["home_team"]
+        away    = match["away_team"]
+        date    = match["date"]
+        match_id = MATCH_ID_OFFSET + int(match["match_number"])
 
-        print(f"[PRONO] Match sélectionné : {home} vs {away} (fixture_id={fixture_id})")
+        await interaction.response.edit_message(
+            content=f"⏳ Calcul de la prédiction ML pour **{home} vs {away}**…",
+            view=None,
+        )
 
-        cached = database.get_cached_prono(fixture_id)
-        if cached:
-            print(f"[PRONO] Cache hit — envoi direct")
-            await interaction.response.edit_message(
-                content=f"**Pronostic (cache) : {home} vs {away}**\n\n{cached}", view=None
-            )
-            return
-
-        await interaction.response.edit_message(content="⏳ Génération du pronostic…", view=None)
-
-        print(f"[PRONO] Fetch fixtures domicile (id={fixture['home_team_id']})")
-        home_fixtures = await fetch_fixtures(fixture["home_team_id"])
-        print(f"[PRONO] {len(home_fixtures)} matchs récupérés pour {home}")
-
-        print(f"[PRONO] Fetch fixtures extérieur (id={fixture['away_team_id']})")
-        away_fixtures = await fetch_fixtures(fixture["away_team_id"])
-        print(f"[PRONO] {len(away_fixtures)} matchs récupérés pour {away}")
-
-        print(f"[PRONO] Appel generate_prono...")
         try:
-            result = generate_prono(home, home_fixtures, away, away_fixtures)
-            print(f"[PRONO] Réponse reçue ({len(result)} caractères)")
+            # predict_match() est synchrone (pandas + pickle) → thread pour ne pas
+            # bloquer la boucle événementielle Discord pendant le calcul
+            result = await asyncio.to_thread(
+                predict_match, home, away, date, True, 4
+            )
         except Exception as e:
-            print(f"[PRONO] Erreur generate_prono : {e}")
-            await interaction.followup.send(f"❌ Erreur lors de la génération du pronostic : {e}")
+            await interaction.followup.send(f"❌ Erreur ML : {e}")
             return
 
-        database.save_prono(fixture_id, home, away, result)
+        message = format_result(result)
 
-        score = _parse_score(result)
-        if score:
-            pred_home, pred_away = score
-            database.save_prediction(fixture_id, self._competition, home, away, pred_home, pred_away)
-            print(f"[PRONO] Prédiction enregistrée : {home} {pred_home}-{pred_away} {away}")
-        else:
-            print(f"[PRONO] Score non parsé — prédiction non enregistrée")
+        # Encode H/D/A comme score symbolique pour la DB existante
+        # (is_correct_result sera correct ; is_correct_score n'est pas pertinent ici)
+        pred      = result["prediction"]
+        pred_home = 1 if pred == "home" else 0
+        pred_away = 1 if pred == "away" else 0
+        await asyncio.to_thread(
+            database.save_prediction,
+            match_id, WC_COMPETITION, home, away, pred_home, pred_away,
+        )
 
-        await interaction.followup.send(header + result)
+        await interaction.followup.send(message)
 
 
-class MatchSelectView(discord.ui.View):
-    def __init__(self, fixtures: list[dict], competition: str):
+class GroupView(discord.ui.View):
+    def __init__(self, matches: list[dict], group: str):
         super().__init__(timeout=120)
-        self.add_item(MatchSelect(fixtures, competition))
+        self.add_item(MatchSelect(matches, group))
 
 
-@app_commands.command(name="prono", description="Génère un pronostic IA pour un match à venir")
-@app_commands.describe(ligue="Ligue à consulter")
-@app_commands.choices(ligue=[
-    app_commands.Choice(name="Ligue 1",          value="FL1"),
-    app_commands.Choice(name="Premier League",   value="PL"),
-    app_commands.Choice(name="Liga",             value="PD"),
-    app_commands.Choice(name="Bundesliga",       value="BL1"),
-    app_commands.Choice(name="Serie A",          value="SA"),
-    app_commands.Choice(name="Champions League", value="CL"),
+@app_commands.command(
+    name="prono",
+    description="Prédictions ML pour les matchs de la Coupe du Monde 2026",
+)
+@app_commands.describe(groupe="Groupe à consulter (A à L)")
+@app_commands.choices(groupe=[
+    app_commands.Choice(name=f"Groupe {g}", value=g)
+    for g in "ABCDEFGHIJKL"
 ])
-async def prono(interaction: discord.Interaction, ligue: app_commands.Choice[str]):
+async def prono(interaction: discord.Interaction, groupe: app_commands.Choice[str]) -> None:
+    """Affiche un sélecteur de match pour le groupe demandé."""
     await interaction.response.defer()
-    print(f"[PRONO] /prono déclenché — ligue={ligue.value}")
 
-    fixtures = await fetch_upcoming_fixtures(ligue.value)
-    print(f"[PRONO] {len(fixtures)} matchs à venir récupérés pour {ligue.name}")
-
-    if not fixtures:
-        await interaction.followup.send(f"Aucun match à venir trouvé pour **{ligue.name}**.")
+    matches = _group_matches(groupe.value)
+    if not matches:
+        await interaction.followup.send(
+            f"Aucun match trouvé pour le Groupe {groupe.value}."
+        )
         return
 
-    view = MatchSelectView(fixtures, ligue.value)
-    await interaction.followup.send(f"**{ligue.name}** — Choisissez un match :", view=view)
+    await interaction.followup.send(
+        f"**🏆 Coupe du Monde 2026 — Groupe {groupe.value}**\nChoisissez un match :",
+        view=GroupView(matches, groupe.value),
+    )
 
 
-def setup(tree: app_commands.CommandTree):
+def setup(tree: app_commands.CommandTree) -> None:
+    """Enregistre la commande dans le command tree Discord."""
     tree.add_command(prono)
