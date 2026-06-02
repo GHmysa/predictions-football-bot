@@ -13,6 +13,17 @@ def init_db():
     """Crée les tables si elles n'existent pas encore."""
     with get_connection() as conn:
         conn.execute("""
+            CREATE TABLE IF NOT EXISTS match_results (
+                match_id    INTEGER PRIMARY KEY,
+                home_team   TEXT    NOT NULL,
+                away_team   TEXT    NOT NULL,
+                home_score  INTEGER NOT NULL,
+                away_score  INTEGER NOT NULL,
+                match_group TEXT,
+                match_date  TEXT    NOT NULL
+            )
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS predictions (
                 id                   INTEGER PRIMARY KEY AUTOINCREMENT,
                 match_id             INTEGER NOT NULL UNIQUE,
@@ -163,6 +174,53 @@ def get_stats() -> dict:
         "by_competition":  by_competition,
         "best_competition": max(by_competition, key=lambda k: by_competition[k]["rate"], default=None),
     }
+
+
+def save_match_result(
+    match_id: int,
+    home_team: str,
+    away_team: str,
+    home_score: int,
+    away_score: int,
+    match_group: str | None,
+    match_date: str,
+) -> None:
+    """Enregistre le score réel d'un match. Ignoré si match_id existe déjà."""
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO match_results
+                (match_id, home_team, away_team, home_score, away_score, match_group, match_date)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(match_id) DO NOTHING
+            """,
+            (match_id, home_team, away_team, home_score, away_score, match_group, match_date),
+        )
+
+
+def get_group_results(group: str) -> list[dict]:
+    """Retourne tous les matchs joués d'un groupe, triés par date."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT match_id, home_team, away_team, home_score, away_score, match_date
+            FROM match_results
+            WHERE match_group = ?
+            ORDER BY match_date
+            """,
+            (group,),
+        ).fetchall()
+    return [
+        {
+            "match_id":   r[0],
+            "home_team":  r[1],
+            "away_team":  r[2],
+            "home_score": r[3],
+            "away_score": r[4],
+            "match_date": r[5],
+        }
+        for r in rows
+    ]
 
 
 init_db()

@@ -10,6 +10,7 @@ from discord.ext import tasks
 
 from commands.prono import setup as setup_prono
 from commands.accuracy import setup as setup_accuracy
+from commands.standings import setup as setup_standings
 from services.wc_resolver import resolve_wc_predictions
 import database
 
@@ -22,6 +23,7 @@ tree    = app_commands.CommandTree(client)
 
 setup_prono(tree)
 setup_accuracy(tree)
+setup_standings(tree)
 
 
 @tasks.loop(hours=1)

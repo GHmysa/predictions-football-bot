@@ -44,15 +44,16 @@ def _resolve_name(fdorg_name: str) -> str:
 
 def _build_fixture_lookup() -> dict[tuple[str, str], dict]:
     """
-    Construit un dict (home_team, away_team) → {match_id, date} depuis wc2026_fixtures.csv.
-    Seuls les matchs du groupe stage ont des équipes connues.
+    Construit un dict (home_team, away_team) → {match_id, match_date, group}
+    depuis wc2026_fixtures.csv. Seuls les matchs du groupe stage ont des équipes connues.
     """
     df = pd.read_csv(FIXTURES_PATH)
     group_stage = df[df["stage"] == "Group Stage"]
     return {
         (row["home_team"], row["away_team"]): {
-            "match_id":  MATCH_ID_OFFSET + int(row["match_number"]),
+            "match_id":   MATCH_ID_OFFSET + int(row["match_number"]),
             "match_date": row["date"],
+            "group":      row["group"],
         }
         for _, row in group_stage.iterrows()
     }
@@ -132,6 +133,7 @@ def resolve_wc_predictions() -> None:
 
         match_id   = fixture_info["match_id"]
         match_date = fixture_info["match_date"]
+        match_group = fixture_info["group"]
 
         score    = match.get("score", {}).get("fullTime", {})
         actual_h = score.get("home")
@@ -140,6 +142,12 @@ def resolve_wc_predictions() -> None:
         if actual_h is None or actual_a is None:
             print(f"[WC RESOLVER] Score fullTime manquant pour {home_fixture} vs {away_fixture}")
             continue
+
+        # Enregistrer le score réel pour /standings (indépendant des prédictions)
+        database.save_match_result(
+            match_id, home_fixture, away_fixture,
+            actual_h, actual_a, match_group, match_date,
+        )
 
         # Résoudre la prédiction DB si elle est en attente
         if match_id in pending:
