@@ -2,51 +2,45 @@ import discord
 from discord import app_commands
 import database
 
-_LEAGUE_NAMES = {
-    "FL1": "Ligue 1",
-    "PL":  "Premier League",
-    "PD":  "Liga",
-    "BL1": "Bundesliga",
-    "SA":  "Serie A",
-    "CL":  "Champions League",
+_COMPETITION_NAMES = {
+    "WC2026": "Coupe du Monde 2026",
 }
 
 
-@app_commands.command(name="accuracy", description="Statistiques de précision des pronostics IA")
+@app_commands.command(
+    name="accuracy",
+    description="Précision des prédictions ML sur les matchs résolus",
+)
 async def accuracy(interaction: discord.Interaction):
+    """Affiche les statistiques globales et par compétition des prédictions."""
     await interaction.response.defer()
 
     stats = database.get_stats()
 
     if stats["total"] == 0:
         await interaction.followup.send(
-            "📊 Aucun pronostic résolu pour l'instant.\n"
+            "📊 Aucune prédiction résolue pour l'instant.\n"
             "Les stats apparaîtront une fois les premiers matchs terminés."
         )
         return
 
     lines = [
-        "## 📊 Précision des pronostics IA",
+        "## 📊 Précision des prédictions ML",
         "",
-        f"**Pronos analysés** : {stats['total']}",
+        f"**Matchs analysés** : {stats['total']}",
         f"🎯 **Résultat correct** : {stats['correct_results']}/{stats['total']} — **{stats['result_rate']}%**",
-        f"⚽ **Score exact** : {stats['correct_scores']}/{stats['total']} — **{stats['score_rate']}%**",
     ]
 
     if stats["by_competition"]:
         lines += ["", "**Par compétition :**"]
         for code, s in stats["by_competition"].items():
-            name = _LEAGUE_NAMES.get(code, code)
+            name = _COMPETITION_NAMES.get(code, code)
             star = " ⭐" if code == stats["best_competition"] else ""
             lines.append(f"• {name}{star} : {s['correct_results']}/{s['total']} ({s['rate']}%)")
-
-    if stats["best_competition"]:
-        best_name = _LEAGUE_NAMES.get(stats["best_competition"], stats["best_competition"])
-        best_rate = stats["by_competition"][stats["best_competition"]]["rate"]
-        lines += ["", f"🏆 **Meilleure ligue** : {best_name} ({best_rate}%)"]
 
     await interaction.followup.send("\n".join(lines))
 
 
-def setup(tree: app_commands.CommandTree):
+def setup(tree: app_commands.CommandTree) -> None:
+    """Enregistre la commande dans le command tree Discord."""
     tree.add_command(accuracy)
