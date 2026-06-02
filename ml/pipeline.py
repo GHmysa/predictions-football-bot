@@ -24,7 +24,6 @@ from ml.train import MODEL_PATH, train
 from ml.run_wc2026 import display, run_group_stage
 
 FEATURES_PATH = DATA_DIR / "features.csv"
-METRICS_PATH  = Path(__file__).parent / "metrics.json"
 
 
 def _step(label: str) -> None:

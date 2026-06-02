@@ -1,8 +1,6 @@
-# ⚽ Football Prediction Bot — CdM 2026
+# Football Prediction Bot — CdM 2026
 
-Bot Discord de prédiction de matchs de football avec pipeline ML complet, construit comme projet portfolio ML Engineer.
-
-Le bot prédit les résultats des matchs de la **Coupe du Monde 2026** à l'aide d'un modèle XGBoost entraîné sur 150 ans de matchs internationaux.
+Bot Discord de prédiction de matchs de la Coupe du Monde 2026, construit sur un pipeline ML complet entraîné sur 150 ans de matchs internationaux.
 
 ---
 
@@ -10,49 +8,51 @@ Le bot prédit les résultats des matchs de la **Coupe du Monde 2026** à l'aide
 
 | Commande | Description |
 |---|---|
-| `/prono groupe:X` | Sélecteur de match pour un groupe CdM 2026 (A→L) → prédiction ML avec probabilités |
-| `/stats ligue:X` | Statistiques d'une équipe en club (5 derniers matchs, forme) |
-| `/accuracy` | Précision globale des prédictions enregistrées en base |
+| `/prono groupe:X` | Sélecteur de match pour un groupe (A→L) → prédiction ML avec barres de probabilité |
+| `/standings groupe:X` | Classement en temps réel d'un groupe, avec résultats joués et prédictions à venir |
+| `/accuracy` | Précision des prédictions ML sur les matchs résolus |
 
 ---
 
-## Pipeline ML
+## Architecture ML
 
-```
-ml/data/results.csv          (Mart Jürisoo — matchs internationaux 1872→2024)
-         │
-         ▼
-ml/features.py    →  ELO chronologique + forme 5 matchs + H2H  →  features.csv
-         │
-         ▼
-ml/train.py       →  XGBoost  (train <2018 / val 2018-2021 / test 2022-2024)  →  model.pkl
-         │
-         ▼
-ml/run_wc2026.py  →  72 matchs du groupe stage  →  wc2026_predictions.csv
-```
-
-**Lancer le pipeline complet :**
-```bash
-python -m ml.pipeline           # skip si model.pkl existe déjà
-python -m ml.pipeline --force   # tout recalculer
-```
+### Données
+**Source** : dataset Mart Jürisoo — 49 287 matchs internationaux depuis 1872 (`results.csv`)
 
 ### Features
-
 | Feature | Description |
 |---|---|
-| `elo_home / elo_away / elo_diff` | ELO calculé depuis 1872 avec K variable (40 CdM / 30 qualif / 20 amical) |
-| `home/away_form_pts/gf/ga/n` | Forme sur les 5 derniers matchs (taux de victoire, buts marqués/encaissés) |
-| `h2h_home_pts / h2h_gd / h2h_n` | Historique des 5 derniers duels directs |
-| `is_neutral` | 1 pour tous les matchs CdM (terrain neutre) |
-| `tournament_tier` | 4=CdM, 3=Continental, 2=Qualification, 1=Amical |
+| `elo_home/away/diff` | ELO calculé depuis 1872 avec K variable (40=CdM / 30=qualif / 20=amical). Seule vraie mesure de la force historique d'une équipe. |
+| `home/away_form_pts/gf/ga` | Forme sur les 5 derniers matchs (taux de victoire, buts marqués/encaissés). Capture l'état récent indépendamment du rating ELO. |
+| `h2h_home_pts/gd` | Historique des 5 derniers duels directs. Certaines équipes dominent systématiquement d'autres. |
+| `is_neutral` | 1 pour tous les matchs CdM (terrain neutre). L'avantage du terrain est réel en football. |
+| `tournament_tier` | 4=CdM, 3=Continental, 2=Qualification, 1=Amical. Les équipes ne jouent pas au même niveau selon l'enjeu. |
 
-### Évaluation
+**Règle fondamentale anti-leakage** : toutes les features sont calculées avec uniquement les données **strictement antérieures** au match. `shift(1)` avant tout `rolling()`.
 
-Split temporel strict (pas de shuffle sur séries temporelles) :
-- **Baseline** : règle naïve ELO (prédit toujours le favori ELO)
-- **XGBoost** : accuracy + log-loss sur le set de test 2022-2024
-- Métriques complètes dans `ml/metrics.json`
+### Modèle
+- **Algorithme** : XGBoost (`multi:softprob`, 3 classes : domicile / nul / extérieur)
+- **Output** : 3 probabilités calibrées qui somment à 1
+- **Split temporel strict** : train `<2018` / val `2018-2021` / test `2022-2024`
+- **Baseline** : règle naïve ELO — le modèle doit la battre pour être utile
+- **Métriques** : accuracy + log-loss sur le set de test (jamais utilisé pour tuner)
+
+### Pipeline offline
+```
+python -m ml.pipeline           # skip si artifacts existent
+python -m ml.pipeline --force   # tout recalculer
+```
+Enchaîne : `features.py` → `train.py` → `run_wc2026.py`
+
+### Mise à jour en temps réel (pendant la CdM)
+Toutes les heures, `auto_resolve` :
+1. Interroge football-data.org → matchs terminés
+2. Résout les prédictions en DB → `/accuracy` se met à jour
+3. Enregistre les scores réels → `/standings` se met à jour
+4. Recalcule les ELO et les appende dans `wc_elo_updates.csv`
+5. Invalide le cache de `predict.py` → les prochains `/prono` utilisent l'ELO à jour
+
+`elo_history.csv` (données 1872-2024) n'est **jamais modifié**. `wc_elo_updates.csv` est le delta léger du tournoi en cours.
 
 ---
 
@@ -62,9 +62,9 @@ Split temporel strict (pas de shuffle sur séries temporelles) :
 |---|---|
 | Bot Discord | discord.py 2.3.2 |
 | ML | XGBoost 2.0.3 · scikit-learn 1.4.0 |
-| Data | pandas 2.2.0 · Mart Jürisoo dataset |
-| HTTP async | httpx 0.27.2 |
-| Base de données | SQLite (prédictions + cache) |
+| Data | pandas 2.2.0 |
+| HTTP sync | requests 2.31.0 (resolver) |
+| Base de données | SQLite — `predictions` + `match_results` |
 | Hébergement | Railway |
 | Runtime | Python 3.12 |
 
@@ -74,73 +74,60 @@ Split temporel strict (pas de shuffle sur séries temporelles) :
 
 ```
 predictions-football-bot/
-├── bot.py                       # Point d'entrée Discord
-├── database.py                  # SQLite — cache pronos, prédictions, stats
+│
+├── bot.py                        # Discord client, 3 commandes, tâche horaire resolver
+├── database.py                   # SQLite — predictions, match_results, stats
 │
 ├── commands/
-│   ├── prono.py                 # /prono — sélecteur groupe CdM → prédiction ML
-│   ├── stats.py                 # /stats — stats équipe club
-│   └── accuracy.py              # /accuracy — précision historique
+│   ├── prono.py                  # /prono  — sélecteur groupe → prédiction ML
+│   ├── standings.py              # /standings — classement temps réel + prédictions à venir
+│   └── accuracy.py               # /accuracy — précision des prédictions résolues
 │
 ├── services/
-│   ├── ml_model.py              # Wrapper ML → message Discord formaté
-│   ├── api_football.py          # Client football-data.org (stats clubs)
-│   ├── ai_call.py               # Claude / Mistral (non utilisé pour CdM)
-│   └── resolver.py              # Job horaire — résolution des prédictions passées
+│   ├── ml_model.py               # format_result() — dict predict_match → message Discord
+│   ├── wc_resolver.py            # Résolution horaire via football-data.org + update ELO
+│   └── elo_updater.py            # Calcul ELO post-match → wc_elo_updates.csv
 │
 └── ml/
-    ├── pipeline.py              # Orchestrateur : features → train → prédictions
-    ├── features.py              # Feature engineering (ELO, forme, H2H)
-    ├── train.py                 # Entraînement XGBoost + évaluation
-    ├── predict.py               # Inférence sur un match unique
-    ├── run_wc2026.py            # Prédictions batch groupe stage CdM 2026
-    ├── model.pkl                # Modèle sérialisé (requis par le bot)
-    ├── metrics.json             # Métriques d'évaluation
+    ├── pipeline.py               # Orchestrateur : features → train → prédictions
+    ├── features.py               # Feature engineering (ELO, forme, H2H)
+    ├── train.py                  # XGBoost, split temporel, baseline, métriques
+    ├── predict.py                # Inférence match unique (lru_cache données + modèle)
+    ├── run_wc2026.py             # Prédictions batch groupe stage
+    ├── model.pkl                 # Modèle sérialisé (requis par le bot)
+    ├── metrics.json              # Métriques d'évaluation (accuracy, log-loss)
     └── data/
-        ├── results.csv          # Dataset Mart Jürisoo (1872→2024)
-        ├── elo_history.csv      # ELO calculé après chaque match
-        ├── wc2026_fixtures.csv  # Calendrier officiel CdM 2026
-        ├── wc2026_teams.csv     # Mapping noms FIFA → dataset
-        └── wc2026_predictions.csv  # Prédictions groupe stage
+        ├── results.csv           # Mart Jürisoo — matchs internationaux 1872-2024
+        ├── elo_history.csv       # ELO calculé après chaque match historique
+        ├── wc_elo_updates.csv    # Delta ELO des matchs CdM joués (généré en prod)
+        ├── wc2026_fixtures.csv   # Calendrier officiel CdM 2026 (104 matchs)
+        ├── wc2026_teams.csv      # Mapping noms FIFA → noms dataset
+        └── wc2026_predictions.csv # Prédictions groupe stage pré-générées
 ```
 
 ---
 
 ## Installation locale
 
-### 1. Cloner et installer les dépendances
-
 ```bash
-git clone <repo>
-cd predictions-football-bot
-python -m venv .venv
-.venv\Scripts\activate      # Windows
+git clone <repo> && cd predictions-football-bot
+python -m venv .venv && .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 2. Variables d'environnement
-
-Créer un fichier `.env` :
-
+Créer `.env` :
 ```env
-DISCORD_TOKEN=your_discord_bot_token
-GUILD_ID=your_discord_server_id
-
-FOOTBALL_DATA_KEY=your_football_data_org_key
-
-MISTRAL_API_KEY=your_mistral_api_key       # optionnel
-ANTHROPIC_API_KEY=your_anthropic_api_key   # optionnel
-AI_PROVIDER=mistral
+DISCORD_TOKEN=...
+GUILD_ID=...
+FOOTBALL_DATA_KEY=...   # football-data.org — utilisé par le resolver
 ```
 
-### 3. Entraîner le modèle (première fois)
-
+Entraîner le modèle (une fois) :
 ```bash
 python -m ml.pipeline
 ```
 
-### 4. Lancer le bot
-
+Lancer le bot :
 ```bash
 python bot.py
 ```
@@ -151,10 +138,10 @@ python bot.py
 
 | Limite | Détail |
 |---|---|
-| **Modèle figé** | L'ELO et la forme ne se mettent pas à jour pendant la CdM. Pour intégrer les résultats en cours : ajouter les matchs à `results.csv` puis `python -m ml.pipeline --force` |
-| **Résolution WC automatique** | `resolver.py` interroge football-data.org — les matchs CdM (IDs 200001+) n'y sont pas. Les prédictions WC ne s'auto-résolvent pas via `/accuracy` |
-| **Phases éliminatoires** | `/prono` ne couvre que le groupe stage (équipes TBD pour le reste) |
-| **Pas de prédiction de score** | Le modèle prédit H/D/A, pas un score exact |
+| **Pas de score exact** | Le modèle prédit H/D/A, pas un score précis |
+| **Mapping noms football-data.org** | Si un nom d'équipe ne correspond pas, le resolver log un avertissement — corriger `_FDORG_TO_FIXTURE` dans `wc_resolver.py` |
+| **Phases éliminatoires** | `/prono` ne couvre que le groupe stage. Pour les KO : mettre à jour `wc2026_fixtures.csv` avec les vraies équipes une fois qualifiées |
+| **`wc_elo_updates.csv` non persisté** | Railway recrée le filesystem à chaque redémarrage. L'ELO repart de 0 après un redémarrage du pod (solution : le committer après chaque journée) |
 
 ---
 

@@ -2,9 +2,10 @@
 
 ## Project Overview
 
-Discord bot for football match predictions with an integrated ML pipeline.
+Discord bot for World Cup 2026 match predictions powered by a full ML pipeline.
 **Portfolio project** targeting a **ML Engineer internship**.
-The bot generates AI-powered pronostics via slash commands, tracks prediction accuracy in SQLite, and is backed by a supervised ML pipeline trained on historical international match data.
+
+The bot predicts match outcomes (home/draw/away) using XGBoost trained on 150 years of international football data. Predictions update in real time as WC matches are played (ELO recalculated after each match).
 
 ---
 
@@ -14,17 +15,12 @@ The bot generates AI-powered pronostics via slash commands, tracks prediction ac
 |---|---|---|
 | Language | Python | 3.12.x |
 | Discord | discord.py | 2.3.2 |
-| HTTP (async) | httpx | 0.27.2 |
 | HTTP (sync) | requests | 2.31.0 |
-| Web server | Flask | 3.1.1 |
-| Payments | stripe | 12.2.0 |
 | Data | pandas | 2.2.0 |
 | ML | scikit-learn | 1.4.0 |
 | ML (boosting) | xgboost | 2.0.3 |
-| Visualization | matplotlib / seaborn | 3.8.0 / 0.13.2 |
 | Database | SQLite (built-in) | — |
 | Env vars | python-dotenv | 1.0.0 |
-| AI providers | Anthropic Claude API / Mistral AI | — |
 | Football data | football-data.org API v4 | — |
 | Deployment | Railway | — |
 | Python pin | `.python-version` → `3.12` | — |
@@ -36,132 +32,68 @@ The bot generates AI-powered pronostics via slash commands, tracks prediction ac
 ```
 predictions-football-bot/
 │
-├── bot.py                      # Entry point — Discord client, slash command tree, hourly resolver loop
-├── database.py                 # SQLite layer — all DB reads/writes (prono_cache, teams_cache, predictions)
-├── Procfile                    # Railway process definition (worker: python bot.py)
-├── requirements.txt            # Pinned dependencies — always keep in sync
-├── .python-version             # Pins Python 3.12 for Railway builds
-├── .env                        # Local secrets — never committed
+├── bot.py                        # Discord client, 3 commands, hourly resolver task
+├── database.py                   # SQLite — tables: predictions, match_results
+├── Procfile                      # Railway: worker: python bot.py
+├── requirements.txt              # Pinned deps
+├── .python-version               # Python 3.12 pin for Railway
+├── .env                          # Local secrets — never committed
 │
 ├── commands/
-│   ├── __init__.py
-│   ├── prono.py                # /prono command — fixture selector UI + AI prono generation + DB save
-│   ├── stats.py                # /stats command — accuracy display per competition
-│   └── accuracy.py             # /accuracy command — global prediction accuracy
+│   ├── prono.py                  # /prono — group selector → match select → ML prediction
+│   ├── standings.py              # /standings — live group table + upcoming ML predictions
+│   └── accuracy.py               # /accuracy — prediction accuracy stats
 │
 ├── services/
-│   ├── __init__.py
-│   ├── api_football.py         # football-data.org async client (httpx) — fixtures, teams, upcoming matches
-│   ├── ai_call.py              # Prompt builder + Claude/Mistral API calls — generates pronostic text
-│   └── resolver.py             # Sync job — polls finished matches and resolves pending predictions in DB
+│   ├── ml_model.py               # format_result() — formats predict_match() dict → Discord message
+│   ├── wc_resolver.py            # Hourly: fetch finished WC matches → resolve DB + update ELO
+│   └── elo_updater.py            # Post-match ELO update → appends to wc_elo_updates.csv
 │
 └── ml/
-    ├── data/
-    │   ├── results.csv         # Mart Jürisoo dataset — international results since 1872
-    │   ├── goalscorers.csv     # Goal events per match
-    │   ├── shootouts.csv       # Penalty shootout outcomes
-    │   └── former_names.csv    # Historical country name mappings
-    └── notebooks/
-        └── exploration.ipynb   # EDA, feature engineering, model training (Jupyter — kernel: Python 3.12 venv)
+    ├── pipeline.py               # Orchestrator: features → train → predictions (--force to rebuild)
+    ├── features.py               # Feature engineering: ELO, form (5 matches), H2H, neutral, tier
+    ├── train.py                  # XGBoost training, temporal split, baseline ELO, metrics
+    ├── predict.py                # Single-match inference (lru_cache on data + model)
+    ├── run_wc2026.py             # Batch predictions for all 72 group stage matches
+    ├── model.pkl                 # Serialized model (required by bot at runtime)
+    ├── metrics.json              # Evaluation results (accuracy, log-loss)
+    └── data/
+        ├── results.csv           # Mart Jürisoo dataset — 49k intl matches 1872-2024
+        ├── elo_history.csv       # ELO after every historical match (never modified in prod)
+        ├── wc_elo_updates.csv    # Live ELO delta for WC matches played (2 rows/match)
+        ├── wc2026_fixtures.csv   # Official WC 2026 schedule (104 matches)
+        ├── wc2026_teams.csv      # FIFA name → dataset name mapping
+        └── wc2026_predictions.csv # Pre-generated group stage predictions
 ```
 
 ---
 
-## ML Pipeline — Target Architecture (World Cup 2026)
+## ML Pipeline — Key Concepts
 
-### Data
-- **Source**: Mart Jürisoo dataset (`results.csv`) — international matches 1872–present
-- **Scope for training**: post-1990 (modern football era)
-- **Target variable**: match result — `H` (home win), `D` (draw), `A` (away win)
+### ELO calculation
+All teams start at 1500. K-factor: 40 (WC), 30 (qualifier), 20 (friendly). Computed chronologically since 1872. The ELO for match N uses only the ELO from match N-1 — strictly no leakage.
 
-### Features (planned)
-| Feature | Description |
-|---|---|
-| `elo_home` / `elo_away` | ELO ratings computed in-house from historical results |
-| `elo_diff` | `elo_home - elo_away` — primary strength signal |
-| `form_home` / `form_away` | Points per game over last 5 matches (rolling, date-sorted) |
-| `h2h_home_win_rate` | Head-to-head win rate (home team perspective) |
-| `is_neutral` | 1 if neutral venue, 0 otherwise |
-| `tournament` | Encoded competition type (World Cup, qualifier, friendly…) |
-| `goals_scored_avg` / `goals_conceded_avg` | Rolling 5-match averages |
+### Features (16 total)
+`elo_home`, `elo_away`, `elo_diff` — primary strength signal
+`home/away_form_pts/gf/ga/n` — form over last 5 matches (vectorized with `shift(1) + rolling(5)`)
+`h2h_home_pts`, `h2h_gd`, `h2h_n` — last 5 head-to-head meetings
+`is_neutral` — 1 for all WC matches
+`tournament_tier` — 4=WC, 3=continental, 2=qualifier, 1=friendly
 
-### Model
-- **Algorithm**: XGBoost classifier (`multi:softprob`, 3 classes)
-- **Hyperparameter tuning**: `GridSearchCV` or `Optuna`
-- **Evaluation metrics**: accuracy, log loss, confusion matrix, calibration curve
+### Temporal split (hard rule — never shuffle time-series data)
+- Train: `< 2018`
+- Val: `2018–2021` (used for XGBoost early stopping)
+- Test: `2022–2024` (touched once for the final verdict)
 
-### Train/Val/Test Split
-- **Always temporal**: sort by date, then cut (e.g. train ≤ 2018, val 2018–2022, test ≥ 2022)
-- **Never random split on time series** — this is a hard rule, see Development Rules
-
----
-
-## Development Rules
-
-> This is the most important section. Follow these directives strictly in every interaction.
-
-### Code explanation
-- **Always explain new logic line by line** when writing or modifying code.
-- Treat every explanation as if the reader is learning — assume nothing is obvious.
-- If a function has a non-trivial invariant or a subtle gotcha, add a one-line comment on the WHY (not the what).
-
-### File generation
-- **Never generate multiple files in a single response without asking first.**
-- Propose the plan, wait for confirmation, then generate one file at a time.
-
-### Bad practices
-- **Flag bad practices immediately** when spotted, even if not asked. Explain why it is bad and offer a corrected version.
-
-### Python environment
-- **Always use the venv interpreter**: `c:\Users\asmax\ML foot pred\.venv\Scripts\python.exe`
-- Never suggest `pip install` without the venv path or with the system Python.
-- Jupyter kernel to use: **"Python 3.12 (venv)"**
-
-### Commit conventions
+### Live ELO update flow (prod)
 ```
-feat:     new feature
-fix:      bug fix
-refactor: code change with no behavior change
-chore:    deps, config, tooling, CI
+Match finished (football-data.org)
+  → wc_resolver.resolve_wc_predictions()
+      → database.resolve_prediction()       (accuracy tracking)
+      → database.save_match_result()        (standings)
+      → elo_updater.update_elo_with_match() (appends wc_elo_updates.csv)
+          → ml.predict._data.cache_clear()  (next /prono uses fresh ELO)
 ```
-One subject line, imperative mood, ≤ 72 chars.
-
-### Secrets
-- **Never hardcode API keys, tokens, or credentials.**
-- Always use `os.getenv("VAR_NAME")` — never string literals.
-- All secrets live in `.env` (local) or Railway environment variables (prod).
-
-### API error handling
-- **Always handle API errors explicitly** — never let `raise_for_status()` be the only guard.
-- Catch `httpx.HTTPStatusError`, `requests.HTTPError`, and timeout exceptions separately.
-- Log the error with context (`match_id`, `team`, `endpoint`) before re-raising or returning `None`.
-
-### ML — No data leakage
-- **Always sort by date before any rolling or cumulative calculation.**
-- Rolling features must use only past data: `df.shift(1)` before `.rolling()`.
-- Never include post-match information (final score, actual result) as a feature.
-- Lag all target-correlated signals by at least one match.
-
-### ML — Temporal split (hard rule)
-- **Never use `train_test_split` with `shuffle=True` on time-series data.**
-- Always split chronologically: `train → val → test` in date order.
-- Cross-validation must be `TimeSeriesSplit`, never `KFold` with shuffling.
-
-### Docstrings
-- **Every function must have a docstring** — one line minimum.
-- Format: `"""What the function returns and its key side effects."""`
-- For ML functions: add input shape/type expectations and what leakage guard is applied.
-
----
-
-## Current Focus
-
-**World Cup 2026 ML pipeline** — building the full supervised pipeline in `ml/notebooks/exploration.ipynb`:
-1. EDA on `results.csv` (score distributions, tournament breakdown, neutral venue bias)
-2. ELO computation from scratch (iterative, date-sorted)
-3. Feature engineering with strict no-leakage discipline
-4. XGBoost baseline + evaluation
-5. Integration path: trained model → `services/` → replace/augment AI prono call
 
 ---
 
@@ -170,38 +102,38 @@ One subject line, imperative mood, ≤ 72 chars.
 | Variable | Used in | Description |
 |---|---|---|
 | `DISCORD_TOKEN` | `bot.py` | Discord bot token |
-| `FOOTBALL_DATA_KEY` | `services/api_football.py` | football-data.org API key |
-| `ANTHROPIC_API_KEY` | `services/ai_call.py` | Claude API key |
-| `MISTRAL_API_KEY` | `services/ai_call.py` | Mistral AI API key |
-| `AI_PROVIDER` | `services/ai_call.py` | `"mistral"` (default) or `"claude"` |
-| `GUILD_ID` | `bot.py` | Discord server ID for guild-scoped command sync |
-| `STRIPE_SECRET_KEY` | payments | Stripe secret key |
-| `STRIPE_PRICE_ID` | payments | Stripe price/product ID |
-| `STRIPE_WEBHOOK_SECRET` | payments | Stripe webhook signing secret |
-| `PREMIUM_ROLE_ID` | payments | Discord role ID granted on payment |
+| `GUILD_ID` | `bot.py` | Discord server ID (optional — instant dev sync) |
+| `FOOTBALL_DATA_KEY` | `services/wc_resolver.py` | football-data.org API key for match resolution |
 
 ---
 
-## What NOT To Do
+## Development Rules
 
-### General
-- **Do not commit `.env`** — it is in `.gitignore`. Never add it.
-- **Do not use `print()` for structured logging in production** — use it only for Railway console debug during dev.
-- **Do not import inside function bodies** unless there is a circular-import reason — the `import json` inside `database.py` functions should be moved to the top.
-- **Do not silently swallow exceptions** — `except Exception: pass` is never acceptable.
+### Code style
+- No comments explaining WHAT — only WHY when non-obvious
+- No dead code, no unused imports
+- One file at a time when generating — never multiple files without confirmation
 
-### Discord / async
-- **Do not mix sync and async DB calls** without `asyncio.to_thread()` — SQLite is blocking.
-- **Do not call `interaction.response` after it has already been used** — always use `followup.send` for subsequent messages in the same interaction.
-- **Do not store mutable state on the `client` object** — use the database layer.
+### ML — No data leakage (hard rules)
+- Always sort by date before any rolling or cumulative calculation
+- Use `shift(1)` before `.rolling()` — current match must never see its own result
+- Never include post-match information as a feature
+- Split chronologically — never shuffle time-series data
+- `TimeSeriesSplit` for cross-validation, never `KFold` with shuffling
 
-### API
-- **Do not retry on rate limit with a sleep loop** — raise `RateLimitError` and let the caller decide.
-- **Do not hardcode competition codes as magic strings** outside of the `@app_commands.choices` definition.
+### Git commits
+- No `Co-Authored-By` lines — user does not want Claude visible on GitHub
+- Conventional commits: `feat:`, `fix:`, `refactor:`, `chore:`
+- Imperative mood, ≤ 72 chars subject line
 
-### ML
-- **Do not use accuracy as the sole metric** for an imbalanced multi-class problem — always report log loss and per-class F1.
-- **Do not fit scalers or encoders on the full dataset** before splitting — fit on train, transform val/test.
-- **Do not use future ELO values as features** — ELO for a match must be computed from all matches strictly before that date.
-- **Do not use `pd.DataFrame.sample()` to create train/test sets** on this dataset.
-- **Do not use `fillna(0)` on rolling features without documenting why** — missing rolling values (first N rows) should be dropped or flagged explicitly.
+### Bot / async rules
+- All blocking calls (pandas, SQLite, requests) must use `asyncio.to_thread()`
+- Never call `interaction.response` twice — use `followup.send` for subsequent messages
+- `lru_cache` on expensive loads (model, data, fixtures) — one load per process lifetime
+
+### What NOT to do
+- Do not modify `elo_history.csv` in production — it is the immutable historical source
+- Do not commit `wc_elo_updates.csv` — it is generated in prod at runtime
+- Do not commit `features.csv` — it is a training artifact, regenerated by `pipeline.py`
+- Do not use `train_test_split(shuffle=True)` on this dataset
+- Do not silently swallow exceptions — always log with context

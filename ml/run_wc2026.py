@@ -14,8 +14,6 @@ from ml.features import DATA_DIR
 
 FIXTURES_PATH = DATA_DIR / "wc2026_fixtures.csv"
 
-PRED_LABEL = {"home": "✓ Dom.", "draw": "= Nul ", "away": "✓ Ext."}
-
 
 def run_group_stage() -> pd.DataFrame:
     """Prédit tous les matchs du groupe stage et retourne un DataFrame de résultats."""
