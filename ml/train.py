@@ -6,6 +6,10 @@ Split temporel strict (pas de shuffle) :
   val    : 2018 – 2021 (inclus)
   test   : 2022 – 2024 (inclus)
 
+Améliorations appliquées :
+  - class weights pour rééquilibrer les nuls (sous-représentés ~25%)
+  - calibration isotonique pour des probabilités honnêtes
+
 Exécution : python -m ml.train   (depuis predictions-football-bot/)
 """
 from __future__ import annotations
@@ -16,69 +20,85 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from sklearn.metrics import (
-    accuracy_score,
-    confusion_matrix,
-    log_loss,
-)
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.metrics import accuracy_score, confusion_matrix, log_loss
+from sklearn.utils.class_weight import compute_sample_weight
 from xgboost import XGBClassifier
 
-from ml.features import build_features, DATA_DIR, FEATURE_COLS
+from ml.features import DATA_DIR, FEATURE_COLS, build_features
 
 MODEL_PATH   = Path(__file__).parent / "model.pkl"
 METRICS_PATH = Path(__file__).parent / "metrics.json"
+
 TARGET_COL = "result"  # 0=away, 1=draw, 2=home
 
-# Dates de coupure pour le split temporel
 TRAIN_END = "2017-12-31"
 VAL_END   = "2021-12-31"
 TEST_END  = "2024-12-31"
 
 
 # ---------------------------------------------------------------------------
-# Baseline : prédit toujours l'équipe avec le meilleur ELO
-# (draw si elo_diff < seuil)
+# Baseline : règle naïve ELO
 # ---------------------------------------------------------------------------
 
 def baseline_predict(X: pd.DataFrame, draw_threshold: float = 50.0) -> np.ndarray:
     """
     Règle naïve ELO :
-      - elo_diff > +threshold  → victoire domicile (2)
-      - elo_diff < -threshold  → victoire extérieur (0)
-      - sinon                  → nul (1)
+      elo_diff > +threshold  → victoire domicile (2)
+      elo_diff < -threshold  → victoire extérieur (0)
+      sinon                  → nul (1)
     """
-    preds = np.where(
+    return np.where(
         X["elo_diff"] > draw_threshold, 2,
         np.where(X["elo_diff"] < -draw_threshold, 0, 1),
     )
-    return preds
 
 
 # ---------------------------------------------------------------------------
 # Métriques
 # ---------------------------------------------------------------------------
 
-def evaluate(name: str, y_true: np.ndarray, y_pred: np.ndarray,
-             y_proba: np.ndarray | None = None) -> dict:
+def evaluate(
+    name: str,
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    y_proba: np.ndarray | None = None,
+) -> dict:
+    """Affiche et retourne accuracy, log-loss, matrice de confusion."""
     acc = accuracy_score(y_true, y_pred)
     cm  = confusion_matrix(y_true, y_pred, labels=[0, 1, 2])
-    metrics = {"accuracy": round(float(acc), 4)}
+    metrics: dict = {"accuracy": round(float(acc), 4)}
 
     if y_proba is not None:
         ll = log_loss(y_true, y_proba, labels=[0, 1, 2])
         metrics["log_loss"] = round(float(ll), 4)
 
-    print(f"\n{'─'*40}")
+    print(f"\n{'─'*44}")
     print(f"  {name}")
-    print(f"{'─'*40}")
+    print(f"{'─'*44}")
     print(f"  Accuracy  : {acc:.4f}  ({int(acc * len(y_true))}/{len(y_true)})")
     if y_proba is not None:
         print(f"  Log-loss  : {ll:.4f}")
-    print(f"\n  Confusion matrix (rows=actual, cols=predicted)")
-    print(f"  Labels : 0=away  1=draw  2=home")
-    cm_df = pd.DataFrame(cm, index=["actual_away", "actual_draw", "actual_home"],
-                          columns=["pred_away", "pred_draw", "pred_home"])
+
+    print(f"\n  Confusion matrix  (lignes=réel, colonnes=prédit)")
+    print(f"  Labels : 0=ext.  1=nul  2=dom.")
+    cm_df = pd.DataFrame(
+        cm,
+        index=["réel_ext.", "réel_nul ", "réel_dom."],
+        columns=["pred_ext.", "pred_nul ", "pred_dom."],
+    )
     print(cm_df.to_string())
+
+    # Résumé des nuls prédits — métrique clé pour juger le rééquilibrage
+    n_draw_pred = int(cm[:, 1].sum())
+    n_draw_true = int(cm[1, :].sum())
+    draw_recall  = cm[1, 1] / n_draw_true if n_draw_true else 0
+    print(f"\n  Nuls prédits   : {n_draw_pred} / {len(y_true)} ({n_draw_pred/len(y_true):.1%})")
+    print(f"  Nuls réels     : {n_draw_true} / {len(y_true)} ({n_draw_true/len(y_true):.1%})")
+    print(f"  Rappel nuls    : {draw_recall:.1%}  (nuls correctement détectés)")
+
+    metrics["draw_pred_rate"]   = round(n_draw_pred / len(y_true), 4)
+    metrics["draw_recall"]      = round(float(draw_recall), 4)
     return metrics
 
 
@@ -86,7 +106,11 @@ def evaluate(name: str, y_true: np.ndarray, y_pred: np.ndarray,
 # Pipeline principal
 # ---------------------------------------------------------------------------
 
-def train(features_path: str | Path | None = None) -> XGBClassifier:
+def train(features_path: str | Path | None = None) -> CalibratedClassifierCV:
+    """
+    Entraîne XGBoost avec class weights + calibration isotonique.
+    Retourne le modèle calibré prêt pour l'inférence.
+    """
     features_path = Path(features_path or DATA_DIR / "features.csv")
 
     if not features_path.exists():
@@ -96,32 +120,51 @@ def train(features_path: str | Path | None = None) -> XGBClassifier:
     else:
         df = pd.read_csv(features_path, parse_dates=["date"])
 
-    print(f"Dataset : {len(df):,} matchs  |  {df['result'].value_counts().to_dict()}")
+    # Distribution des classes — sert à quantifier le déséquilibre
+    class_counts = df["result"].value_counts().sort_index()
+    print(f"Dataset : {len(df):,} matchs")
+    print(f"Distribution : away={class_counts[0]} ({class_counts[0]/len(df):.1%})  "
+          f"draw={class_counts[1]} ({class_counts[1]/len(df):.1%})  "
+          f"home={class_counts[2]} ({class_counts[2]/len(df):.1%})")
 
     # --- Split temporel ---
     train_df = df[df["date"] <= TRAIN_END]
     val_df   = df[(df["date"] > TRAIN_END) & (df["date"] <= VAL_END)]
     test_df  = df[(df["date"] > VAL_END)   & (df["date"] <= TEST_END)]
 
-    print(f"\nSplit temporel :")
     train_end_yr = int(TRAIN_END[:4])
     val_end_yr   = int(VAL_END[:4])
     test_end_yr  = int(TEST_END[:4])
-    print(f"  Train  (≤ {TRAIN_END})              : {len(train_df):>6,} matchs")
-    print(f"  Val    ({train_end_yr + 1} – {val_end_yr})                    : {len(val_df):>6,} matchs")
-    print(f"  Test   ({val_end_yr + 1}  – {test_end_yr})                    : {len(test_df):>6,} matchs")
+    print(f"\nSplit temporel :")
+    print(f"  Train  (<= {TRAIN_END})          : {len(train_df):>6,} matchs")
+    print(f"  Val    ({train_end_yr + 1}–{val_end_yr})                  : {len(val_df):>6,} matchs")
+    print(f"  Test   ({val_end_yr + 1}–{test_end_yr})                  : {len(test_df):>6,} matchs")
 
-    X_train, y_train = train_df[FEATURE_COLS], train_df[TARGET_COL].values
-    X_val,   y_val   = val_df[FEATURE_COLS],   val_df[TARGET_COL].values
-    X_test,  y_test  = test_df[FEATURE_COLS],  test_df[TARGET_COL].values
+    X_train, y_train = train_df[FEATURE_COLS].values, train_df[TARGET_COL].values
+    X_val,   y_val   = val_df[FEATURE_COLS].values,   val_df[TARGET_COL].values
+    X_test,  y_test  = test_df[FEATURE_COLS].values,  test_df[TARGET_COL].values
+
+    # --- Class weights ---
+    # Les nuls (~25%) sont sous-représentés → le modèle naïf les ignore.
+    # compute_sample_weight('balanced') affecte un poids inversement proportionnel
+    # à la fréquence de la classe dans y_train.
+    sample_weights = compute_sample_weight("balanced", y_train)
+    unique, counts = np.unique(y_train, return_counts=True)
+    print(f"\nClass weights appliqués :")
+    for cls, cnt in zip(unique, counts):
+        label = {0: "away", 1: "draw", 2: "home"}[cls]
+        w = sample_weights[y_train == cls][0]
+        print(f"  {label} ({cnt:,} exemples)  →  weight = {w:.3f}")
 
     # --- Baseline ---
     print("\n=== BASELINE (ELO naïf) ===")
-    baseline_val  = evaluate("Baseline — validation",  y_val,  baseline_predict(X_val))
-    baseline_test = evaluate("Baseline — test",        y_test, baseline_predict(X_test))
+    X_val_df   = val_df[FEATURE_COLS]
+    X_test_df  = test_df[FEATURE_COLS]
+    baseline_val  = evaluate("Baseline — validation", y_val,  baseline_predict(X_val_df))
+    baseline_test = evaluate("Baseline — test",       y_test, baseline_predict(X_test_df))
 
     # --- XGBoost ---
-    model = XGBClassifier(
+    xgb = XGBClassifier(
         n_estimators=400,
         max_depth=4,
         learning_rate=0.05,
@@ -136,49 +179,77 @@ def train(features_path: str | Path | None = None) -> XGBClassifier:
         verbosity=0,
     )
 
-    model.fit(
+    xgb.fit(
         X_train, y_train,
-        eval_set=[(X_val, y_val)],
+        sample_weight=sample_weights,
+        eval_set=[(X_val, y_val)],  # eval sans weights — mesure la perf réelle
         verbose=False,
     )
 
-    print(f"\nXGBoost best iteration : {model.best_iteration}")
+    print(f"\nXGBoost best iteration : {xgb.best_iteration}")
 
-    # --- Évaluation ---
-    print("\n=== XGBOOST ===")
-    val_proba  = model.predict_proba(X_val)
-    test_proba = model.predict_proba(X_test)
+    # --- Évaluation XGBoost brut (avant calibration) ---
+    print("\n=== XGBOOST (non calibré) ===")
+    xgb_val_proba  = xgb.predict_proba(X_val)
+    xgb_test_proba = xgb.predict_proba(X_test)
+    xgb_val   = evaluate("XGBoost non calibré — val",  y_val,  xgb.predict(X_val),  xgb_val_proba)
+    xgb_test  = evaluate("XGBoost non calibré — test", y_test, xgb.predict(X_test), xgb_test_proba)
 
-    xgb_val  = evaluate("XGBoost — validation", y_val,  model.predict(X_val),  val_proba)
-    xgb_test = evaluate("XGBoost — test",       y_test, model.predict(X_test), test_proba)
+    # --- Calibration isotonique ---
+    # cv='prefit' : le modèle XGBoost est déjà entraîné, on calibre seulement
+    # les probabilités en sortie. On utilise le val set comme données de calibration.
+    # Note : le val set a aussi servi pour l'early stopping — compromis acceptable
+    # sur un projet de cette taille. Pour être strict, il faudrait un 4e split dédié.
+    calibrated = CalibratedClassifierCV(xgb, cv="prefit", method="isotonic")
+    calibrated.fit(X_val, y_val)
 
-    # --- Gain vs baseline ---
-    print(f"\n  Gain accuracy vs baseline (test) : "
-          f"+{(xgb_test['accuracy'] - baseline_test['accuracy']):.4f}")
+    # --- Évaluation modèle calibré ---
+    print("\n=== XGBOOST CALIBRÉ (isotonic regression) ===")
+    cal_val_proba  = calibrated.predict_proba(X_val)
+    cal_test_proba = calibrated.predict_proba(X_test)
+    cal_val  = evaluate("XGBoost calibré — val",  y_val,  calibrated.predict(X_val),  cal_val_proba)
+    cal_test = evaluate("XGBoost calibré — test", y_test, calibrated.predict(X_test), cal_test_proba)
+
+    # --- Résumé comparatif ---
+    print(f"\n{'═'*44}")
+    print(f"  RÉSUMÉ COMPARATIF (test set)")
+    print(f"{'═'*44}")
+    print(f"  {'Modèle':<30} {'Acc':>6}  {'Log-loss':>8}  {'Recall nuls':>11}")
+    print(f"  {'─'*42}")
+    rows = [
+        ("Baseline ELO",        baseline_test["accuracy"], None,                    baseline_test["draw_recall"]),
+        ("XGBoost non calibré", xgb_test["accuracy"],      xgb_test["log_loss"],    xgb_test["draw_recall"]),
+        ("XGBoost calibré",     cal_test["accuracy"],       cal_test["log_loss"],    cal_test["draw_recall"]),
+    ]
+    for label, acc, ll, dr in rows:
+        ll_str = f"{ll:.4f}" if ll is not None else "   —  "
+        print(f"  {label:<30} {acc:.4f}  {ll_str:>8}  {dr:>10.1%}")
 
     # --- Feature importance ---
-    importance = pd.Series(model.feature_importances_, index=FEATURE_COLS).sort_values(ascending=False)
+    importance = pd.Series(xgb.feature_importances_, index=FEATURE_COLS).sort_values(ascending=False)
     print(f"\nFeature importance (top 10) :")
     print(importance.head(10).map("{:.4f}".format).to_string())
 
-    # --- Sauvegarde ---
+    # --- Sauvegarde du modèle calibré ---
     with open(MODEL_PATH, "wb") as f:
-        pickle.dump(model, f)
-    print(f"\nModèle sauvegardé → {MODEL_PATH}")
+        pickle.dump(calibrated, f)
+    print(f"\nModèle calibré sauvegardé → {MODEL_PATH}")
 
     all_metrics = {
-        "baseline_val":  baseline_val,
-        "baseline_test": baseline_test,
-        "xgb_val":       xgb_val,
-        "xgb_test":      xgb_test,
-        "best_iteration": int(model.best_iteration),
-        "features":      FEATURE_COLS,
+        "baseline_val":   baseline_val,
+        "baseline_test":  baseline_test,
+        "xgb_val":        xgb_val,
+        "xgb_test":       xgb_test,
+        "cal_val":        cal_val,
+        "cal_test":       cal_test,
+        "best_iteration": int(xgb.best_iteration),
+        "features":       FEATURE_COLS,
     }
     with open(METRICS_PATH, "w") as f:
         json.dump(all_metrics, f, indent=2)
     print(f"Métriques sauvegardées → {METRICS_PATH}")
 
-    return model
+    return calibrated
 
 
 if __name__ == "__main__":
