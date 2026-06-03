@@ -5,9 +5,21 @@ from __future__ import annotations
 
 
 def _bar(prob: float, width: int = 10) -> str:
-    """Barre ASCII proportionnelle à la probabilité."""
+    """Barre Unicode proportionnelle à la probabilité."""
     filled = round(prob * width)
     return "█" * filled + "░" * (width - filled)
+
+
+def _confidence_label(max_prob: float) -> str:
+    """
+    Indicateur qualitatif de la certitude du modèle.
+    Basé sur la probabilité de l'issue la plus probable.
+    """
+    if max_prob > 0.55:
+        return "Favori clair"
+    if max_prob < 0.45:
+        return "Match serré"
+    return "Légère faveur"
 
 
 def format_result(r: dict) -> str:
@@ -15,14 +27,16 @@ def format_result(r: dict) -> str:
     Formate le dict retourné par predict_match() en message Discord.
     Fonction pure — aucun IO. Appelée par commands/prono.py.
     """
-    p = r["probabilities"]
+    p        = r["probabilities"]
+    max_prob = max(p["home"], p["draw"], p["away"])
+    conf     = _confidence_label(max_prob)
 
     def _bold(label: str, key: str) -> str:
         return f"**{label}**" if r["prediction"] == key else label
 
     lines = [
         f"## {r['home_team']}  vs  {r['away_team']}",
-        f"📅 {r['date']}  •  ELO : {r['elo_home']:.0f} vs {r['elo_away']:.0f}",
+        f"📅 {r['date']}  •  ELO : {r['elo_home']:.0f} vs {r['elo_away']:.0f}  •  _{conf}_",
         "",
         f"{_bold('🏠 Victoire ' + r['home_team'], 'home')}",
         f"`{_bar(p['home'])}` {p['home']:.0%}",
@@ -33,6 +47,6 @@ def format_result(r: dict) -> str:
         f"{_bold('✈️ Victoire ' + r['away_team'], 'away')}",
         f"`{_bar(p['away'])}` {p['away']:.0%}",
         "",
-        f"**Prédiction : {r['prediction_fr']}** (confiance {r['confidence']:.0%})",
+        f"**{r['prediction_fr']}** — {conf} ({r['confidence']:.0%})",
     ]
     return "\n".join(lines)

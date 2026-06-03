@@ -283,10 +283,13 @@ def train(features_path: str | Path | None = None) -> CalibratedClassifierCV:
     print(f"\nFeature importance (top 10) :")
     print(importance.head(10).map("{:.4f}".format).to_string())
 
-    # --- Sauvegarde du modèle calibré ---
+    # --- Sauvegarde du modèle XGBoost brut ---
+    # Le XGBoost non calibré avec class weights est le meilleur compromis
+    # accuracy / recall nuls. La calibration améliore les probabilités mais
+    # dégrade légèrement l'accuracy — non retenue pour la prod.
     with open(MODEL_PATH, "wb") as f:
-        pickle.dump(calibrated, f)
-    print(f"\nModèle calibré sauvegardé → {MODEL_PATH}")
+        pickle.dump(xgb, f)
+    print(f"\nModèle XGBoost brut sauvegardé → {MODEL_PATH}")
 
     all_metrics = {
         "baseline_val":   baseline_val,
@@ -306,29 +309,28 @@ def train(features_path: str | Path | None = None) -> CalibratedClassifierCV:
     # model_config.json — source de vérité pour les hyperparamètres d'inférence.
     # predict.py lit draw_threshold pour appliquer le même seuil qu'à l'entraînement.
     model_config = {
-        "draw_threshold":      best_threshold,
-        "calibration_method":  "isotonic",
+        "draw_threshold":      None,   # null = argmax brut, pas de seuil appliqué
+        "calibration_method":  None,   # modèle XGBoost brut, non calibré
         "class_weight":        "balanced",
         "train_end":           TRAIN_END,
         "val_end":             VAL_END,
         "test_end":            TEST_END,
         "features":            FEATURE_COLS,
         "val_metrics": {
-            "accuracy":     cal_val["accuracy"],
-            "log_loss":     cal_val["log_loss"],
-            "draw_recall":  cal_val["draw_recall"],
+            "accuracy":     xgb_val["accuracy"],
+            "log_loss":     xgb_val["log_loss"],
+            "draw_recall":  xgb_val["draw_recall"],
         },
         "test_metrics": {
-            "accuracy":     thr_test["accuracy"],
-            "log_loss":     thr_test["log_loss"],
-            "draw_recall":  thr_test["draw_recall"],
+            "accuracy":     xgb_test["accuracy"],
+            "log_loss":     xgb_test["log_loss"],
+            "draw_recall":  xgb_test["draw_recall"],
         },
     }
     with open(MODEL_CONFIG_PATH, "w") as f:
         json.dump(model_config, f, indent=2)
     print(f"Config sauvegardée      → {MODEL_CONFIG_PATH}")
-    print(f"\ndraw_threshold = {best_threshold:.2f}  "
-          f"(test : acc={thr_test['accuracy']:.4f}, recall_draw={thr_test['draw_recall']:.1%})")
+    print(f"\nModele final : XGBoost brut (class weights, draw_threshold=null)")
 
     return calibrated
 
