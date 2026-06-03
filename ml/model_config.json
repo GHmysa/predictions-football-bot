@@ -1,0 +1,36 @@
+{
+  "draw_threshold": null,
+  "calibration_method": null,
+  "class_weight": "balanced",
+  "train_end": "2017-12-31",
+  "val_end": "2021-12-31",
+  "test_end": "2024-12-31",
+  "features": [
+    "elo_home",
+    "elo_away",
+    "elo_diff",
+    "home_form_pts",
+    "home_form_gf",
+    "home_form_ga",
+    "home_form_n",
+    "away_form_pts",
+    "away_form_gf",
+    "away_form_ga",
+    "away_form_n",
+    "h2h_home_pts",
+    "h2h_gd",
+    "h2h_n",
+    "is_neutral",
+    "tournament_tier"
+  ],
+  "val_metrics": {
+    "accuracy": 0.5548,
+    "log_loss": 0.8946,
+    "draw_recall": 0.3735
+  },
+  "test_metrics": {
+    "accuracy": 0.5535,
+    "log_loss": 0.9218,
+    "draw_recall": 0.3329
+  }
+}

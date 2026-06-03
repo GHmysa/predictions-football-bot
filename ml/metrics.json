@@ -1,19 +1,45 @@
 {
   "baseline_val": {
-    "accuracy": 0.5704
+    "accuracy": 0.5704,
+    "draw_pred_rate": 0.2196,
+    "draw_recall": 0.2847
   },
   "baseline_test": {
-    "accuracy": 0.5532
+    "accuracy": 0.5532,
+    "draw_pred_rate": 0.2008,
+    "draw_recall": 0.233
   },
   "xgb_val": {
-    "accuracy": 0.5986,
-    "log_loss": 0.8615
+    "accuracy": 0.5548,
+    "log_loss": 0.8946,
+    "draw_pred_rate": 0.2931,
+    "draw_recall": 0.3735
   },
   "xgb_test": {
-    "accuracy": 0.5938,
-    "log_loss": 0.8909
+    "accuracy": 0.5535,
+    "log_loss": 0.9218,
+    "draw_pred_rate": 0.2641,
+    "draw_recall": 0.3329
   },
-  "best_iteration": 176,
+  "cal_val": {
+    "accuracy": 0.6066,
+    "log_loss": 0.8472,
+    "draw_pred_rate": 0.004,
+    "draw_recall": 0.0085
+  },
+  "cal_test": {
+    "accuracy": 0.591,
+    "log_loss": 0.9059,
+    "draw_pred_rate": 0.0018,
+    "draw_recall": 0.0013
+  },
+  "thr_test": {
+    "accuracy": 0.4133,
+    "log_loss": 0.9059,
+    "draw_pred_rate": 0.7069,
+    "draw_recall": 0.8149
+  },
+  "best_iteration": 181,
   "features": [
     "elo_home",
     "elo_away",
