@@ -56,6 +56,7 @@ def _data() -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     results = (
         pd.read_csv(DATA_DIR / "results.csv", parse_dates=["date"])
+        .dropna(subset=["home_score", "away_score"])  # exclure les matchs futurs sans score
         .sort_values("date")
         .reset_index(drop=True)
     )

@@ -217,10 +217,12 @@ def build_features(
     results_path     = Path(results_path     or DATA_DIR / "results.csv")
     elo_history_path = Path(elo_history_path or DATA_DIR / "elo_history.csv")
 
-    df  = pd.read_csv(results_path,     parse_dates=["date"]).sort_values("date").reset_index(drop=True)
+    df = pd.read_csv(results_path, parse_dates=["date"])
+    # Exclure les matchs sans score (ex. matchs futurs pré-remplis dans le dataset)
+    df = df.dropna(subset=["home_score", "away_score"]).sort_values("date").reset_index(drop=True)
     elo = pd.read_csv(elo_history_path, parse_dates=["date"])
 
-    print(f"Loaded {len(df):,} matches")
+    print(f"Loaded {len(df):,} matches (scores disponibles)")
 
     df = _elo_before_match(df, elo)
     print("ELO features done")
