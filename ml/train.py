@@ -27,8 +27,9 @@ from xgboost import XGBClassifier
 
 from ml.features import DATA_DIR, FEATURE_COLS, build_features
 
-MODEL_PATH   = Path(__file__).parent / "model.pkl"
-METRICS_PATH = Path(__file__).parent / "metrics.json"
+MODEL_PATH        = Path(__file__).parent / "model.pkl"
+METRICS_PATH      = Path(__file__).parent / "metrics.json"
+MODEL_CONFIG_PATH = Path(__file__).parent / "model_config.json"
 
 TARGET_COL = "result"  # 0=away, 1=draw, 2=home
 
@@ -40,6 +41,18 @@ TEST_END  = "2024-12-31"
 # ---------------------------------------------------------------------------
 # Baseline : règle naïve ELO
 # ---------------------------------------------------------------------------
+
+def predict_with_threshold(probs: np.ndarray, draw_threshold: float = 0.25) -> np.ndarray:
+    """
+    Applique un seuil de déclenchement sur la classe nul.
+
+    Si P(draw) >= draw_threshold → prédit nul (1).
+    Sinon → prédit la classe avec la probabilité la plus haute.
+
+    probs : array (n_samples, 3) — colonnes [P(away), P(draw), P(home)]
+    """
+    return np.where(probs[:, 1] >= draw_threshold, 1, np.argmax(probs, axis=1))
+
 
 def baseline_predict(X: pd.DataFrame, draw_threshold: float = 50.0) -> np.ndarray:
     """
@@ -210,20 +223,60 @@ def train(features_path: str | Path | None = None) -> CalibratedClassifierCV:
     cal_val  = evaluate("XGBoost calibré — val",  y_val,  calibrated.predict(X_val),  cal_val_proba)
     cal_test = evaluate("XGBoost calibré — test", y_test, calibrated.predict(X_test), cal_test_proba)
 
+    # --- Optimisation du seuil nul (val set) ---
+    # On cherche le seuil P(draw) qui maximise un score combiné :
+    # score = 0.6 * accuracy + 0.4 * recall_nuls
+    # Le val set sert de données d'optimisation — jamais le test set.
+    print("\n=== OPTIMISATION DU SEUIL NULS (val set) ===")
+    print(f"  {'Seuil':>6}  {'Accuracy':>8}  {'Recall nuls':>11}  {'Score':>7}")
+    print(f"  {'─'*40}")
+
+    best_score     = -1.0
+    best_threshold = 0.25
+    threshold_results: list[tuple] = []
+
+    for t in np.arange(0.20, 0.36, 0.01):
+        t = round(float(t), 2)
+        preds = predict_with_threshold(cal_val_proba, t)
+        acc   = accuracy_score(y_val, preds)
+        cm_t  = confusion_matrix(y_val, preds, labels=[0, 1, 2])
+        n_true_draw  = int(cm_t[1, :].sum())
+        draw_recall  = cm_t[1, 1] / n_true_draw if n_true_draw else 0.0
+        score        = 0.6 * acc + 0.4 * draw_recall
+        threshold_results.append((t, acc, draw_recall, score))
+        if score > best_score:
+            best_score     = score
+            best_threshold = t
+
+    for t, acc, dr, s in threshold_results:
+        marker = " <- optimal" if t == best_threshold else ""
+        print(f"  {t:.2f}    {acc:.4f}      {dr:.4f}    {s:.4f}{marker}")
+
+    print(f"\n  Seuil optimal : {best_threshold:.2f}  (score combiné = {best_score:.4f})")
+
+    # Évaluation du modèle calibré + seuil optimal sur le test set
+    print("\n=== CALIBRÉ + SEUIL OPTIMAL (test) ===")
+    preds_thr_test = predict_with_threshold(cal_test_proba, best_threshold)
+    thr_test = evaluate(
+        f"Calibré + seuil {best_threshold:.2f} — test",
+        y_test, preds_thr_test, cal_test_proba,
+    )
+
     # --- Résumé comparatif ---
-    print(f"\n{'═'*44}")
+    print(f"\n{'═'*52}")
     print(f"  RÉSUMÉ COMPARATIF (test set)")
-    print(f"{'═'*44}")
-    print(f"  {'Modèle':<30} {'Acc':>6}  {'Log-loss':>8}  {'Recall nuls':>11}")
-    print(f"  {'─'*42}")
+    print(f"{'═'*52}")
+    print(f"  {'Modèle':<36} {'Acc':>6}  {'Log-loss':>8}  {'Recall nuls':>11}")
+    print(f"  {'─'*50}")
     rows = [
-        ("Baseline ELO",        baseline_test["accuracy"], None,                    baseline_test["draw_recall"]),
-        ("XGBoost non calibré", xgb_test["accuracy"],      xgb_test["log_loss"],    xgb_test["draw_recall"]),
-        ("XGBoost calibré",     cal_test["accuracy"],       cal_test["log_loss"],    cal_test["draw_recall"]),
+        ("Baseline ELO",                  baseline_test["accuracy"], None,                 baseline_test["draw_recall"]),
+        ("XGBoost non calibré",           xgb_test["accuracy"],      xgb_test["log_loss"], xgb_test["draw_recall"]),
+        ("XGBoost calibré",               cal_test["accuracy"],       cal_test["log_loss"], cal_test["draw_recall"]),
+        (f"Calibré + seuil {best_threshold:.2f}", thr_test["accuracy"], thr_test["log_loss"], thr_test["draw_recall"]),
     ]
     for label, acc, ll, dr in rows:
-        ll_str = f"{ll:.4f}" if ll is not None else "   —  "
-        print(f"  {label:<30} {acc:.4f}  {ll_str:>8}  {dr:>10.1%}")
+        ll_str = f"{ll:.4f}" if ll is not None else "    —   "
+        print(f"  {label:<36} {acc:.4f}  {ll_str:>8}  {dr:>10.1%}")
 
     # --- Feature importance ---
     importance = pd.Series(xgb.feature_importances_, index=FEATURE_COLS).sort_values(ascending=False)
@@ -242,12 +295,40 @@ def train(features_path: str | Path | None = None) -> CalibratedClassifierCV:
         "xgb_test":       xgb_test,
         "cal_val":        cal_val,
         "cal_test":       cal_test,
+        "thr_test":       thr_test,
         "best_iteration": int(xgb.best_iteration),
         "features":       FEATURE_COLS,
     }
     with open(METRICS_PATH, "w") as f:
         json.dump(all_metrics, f, indent=2)
     print(f"Métriques sauvegardées → {METRICS_PATH}")
+
+    # model_config.json — source de vérité pour les hyperparamètres d'inférence.
+    # predict.py lit draw_threshold pour appliquer le même seuil qu'à l'entraînement.
+    model_config = {
+        "draw_threshold":      best_threshold,
+        "calibration_method":  "isotonic",
+        "class_weight":        "balanced",
+        "train_end":           TRAIN_END,
+        "val_end":             VAL_END,
+        "test_end":            TEST_END,
+        "features":            FEATURE_COLS,
+        "val_metrics": {
+            "accuracy":     cal_val["accuracy"],
+            "log_loss":     cal_val["log_loss"],
+            "draw_recall":  cal_val["draw_recall"],
+        },
+        "test_metrics": {
+            "accuracy":     thr_test["accuracy"],
+            "log_loss":     thr_test["log_loss"],
+            "draw_recall":  thr_test["draw_recall"],
+        },
+    }
+    with open(MODEL_CONFIG_PATH, "w") as f:
+        json.dump(model_config, f, indent=2)
+    print(f"Config sauvegardée      → {MODEL_CONFIG_PATH}")
+    print(f"\ndraw_threshold = {best_threshold:.2f}  "
+          f"(test : acc={thr_test['accuracy']:.4f}, recall_draw={thr_test['draw_recall']:.1%})")
 
     return calibrated
 
