@@ -7,13 +7,13 @@
   },
   "xgb_val": {
     "accuracy": 0.5986,
-    "log_loss": 0.8621
+    "log_loss": 0.8615
   },
   "xgb_test": {
-    "accuracy": 0.5932,
-    "log_loss": 0.8917
+    "accuracy": 0.5938,
+    "log_loss": 0.8909
   },
-  "best_iteration": 182,
+  "best_iteration": 176,
   "features": [
     "elo_home",
     "elo_away",
