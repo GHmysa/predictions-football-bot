@@ -1,36 +1,72 @@
 # PROJECT_STATE.md — État complet du projet
-> Généré le 03/06/2026. À mettre à jour après chaque sprint majeur.
+> Mis à jour le 04/06/2026 — pipeline régénéré, modèle propre, push effectué.
+
+---
+
+## Comment Railway et Discord fonctionnent ensemble
+
+### Railway → bot Discord
+Railway héberge le bot comme un **worker persistant** (Procfile : `worker: python bot.py`).
+
+Quand tu pushs sur GitHub :
+1. Railway détecte le push (intégration GitHub automatique)
+2. Pull le code, installe `requirements.txt`, crée un nouveau container
+3. Lance `python bot.py`
+4. Le bot se connecte à Discord via `DISCORD_TOKEN` (variable d'env Railway)
+5. `on_ready` : synchronise les slash commands avec l'API Discord
+6. Reste en vie 24/7 jusqu'au prochain déploiement
+
+Les variables d'environnement (`DISCORD_TOKEN`, `GUILD_ID`, `FOOTBALL_DATA_KEY`) sont définies dans le dashboard Railway — jamais dans le code.
+
+**Temps de propagation des commandes Discord** :
+- Synced sur un guild (`GUILD_ID` défini) → **instantané**
+- Synced globalement (sans `GUILD_ID`) → jusqu'à **1 heure**
+
+### Les prédictions : pré-calculées ou à la volée ?
+
+`wc2026_predictions.csv` **n'est PAS utilisé par le bot Discord**. C'est un artifact d'analyse créé par `ml/run_wc2026.py` pour visualiser les prédictions en batch depuis le terminal.
+
+Quand un utilisateur fait `/prono groupe:C` :
+```
+1. prono.py lit wc2026_fixtures.csv → liste des 3 matchs du groupe (lru_cache)
+2. Utilisateur sélectionne "Brazil vs Morocco"
+3. predict_match("Brazil", "Morocco", "2026-06-13") est appelé
+4. predict.py charge model.pkl + results.csv + elo_history.csv (lru_cache — 1 fois par process)
+5. Calcule les features à la volée : ELO, forme 5 matchs, H2H
+6. model.predict_proba() → [P(away), P(draw), P(home)]
+7. Retourne le dict → format_result() → message Discord avec barres
+```
+
+Les features sont donc **recalculées en temps réel** à chaque `/prono`. La première prédiction prend ~1-2s (chargement des fichiers). Les suivantes sont quasi-instantanées (tout est en cache).
+
+`wc2026_predictions.csv` sert à :
+- Consulter les prédictions en dehors du bot (référence rapide)
+- Portfolio / démonstration
+- Détecter des incohérences avant la mise en prod
 
 ---
 
 ## 1. Commandes Discord
 
 ### `/prono groupe:<A-L>`
-**Ce que ça fait** : affiche un sélecteur dropdown avec les 3 matchs du groupe choisi. L'utilisateur sélectionne un match → le modèle ML calcule les probabilités → le bot répond avec un message structuré contenant les barres de probabilité, les ELO des deux équipes, l'indicateur de confiance (Favori clair / Légère faveur / Match serré), et la prédiction finale.
+Affiche un sélecteur dropdown avec les 3 matchs du groupe. L'utilisateur choisit un match → prédiction ML calculée à la volée → message avec barres de probabilité, ELO, indicateur de confiance (Favori clair / Légère faveur / Match serré).
 
-**Effets de bord** :
-- Sauvegarde la prédiction dans la table `predictions` (SQLite) pour tracking de précision via `/accuracy`
-- Les prédictions sont encodées comme score symbolique (1-0 = domicile, 0-0 = nul, 0-1 = extérieur)
+**Effets de bord** : sauvegarde la prédiction en DB (`predictions`) pour `/accuracy`.
 
-**Limitation** : ne couvre que les 72 matchs du groupe stage. Les phases éliminatoires ont des équipes "TBD" dans `wc2026_fixtures.csv`.
+**Limitation** : groupe stage uniquement (72 matchs). Phases KO : équipes TBD.
 
 ---
 
 ### `/standings groupe:<A-L>`
-**Ce que ça fait** : construit et affiche le classement en temps réel d'un groupe.
+Classement en temps réel. Source : table `match_results` alimentée par le resolver toutes les heures.
 
-**Si des matchs ont été joués** : tableau de classement (Pts / J / V / N / D / GF / GA / +/-) avec les ✓ sur les 2 équipes actuellement qualifiées, liste des scores réels, et prédictions ML pour les matchs restants du groupe.
-
-**Si aucun match joué** : liste des 6 matchs du groupe avec les probabilités ML pour chacun.
-
-**Source des données** : table `match_results` (SQLite), alimentée par `wc_resolver.py` toutes les heures.
+- Matchs joués → tableau classement + scores réels
+- Matchs à venir → probabilités ML calculées à la volée
 
 ---
 
 ### `/accuracy`
-**Ce que ça fait** : affiche la précision des prédictions résolues. Pourcentage de résultats corrects (H/D/A), total de matchs analysés, breakdown par compétition.
-
-**Limitation** : ne montrera des données que lorsque des matchs auront été résolus. La résolution est automatique via `auto_resolve` (toutes les heures), mais dépend de football-data.org pour les scores réels ET du fait que l'utilisateur ait utilisé `/prono` sur ce match.
+Précision globale des prédictions résolues (H/D/A correct ou non). Ne montrera des données que quand des matchs auront été résolus ET que l'utilisateur aura fait `/prono` sur ces matchs.
 
 ---
 
@@ -40,77 +76,71 @@
 
 | Fichier | Rôle |
 |---|---|
-| `bot.py` | Point d'entrée. Enregistre 3 commandes, lance `auto_resolve` toutes les heures, sync le command tree Discord au démarrage. |
-| `database.py` | Couche SQLite. 2 tables + 6 fonctions. Aucune logique métier. |
-| `requirements.txt` | Dépendances pinnées. **⚠️ Contient httpx, flask, stripe — plus utilisés.** |
+| `bot.py` | Point d'entrée. 3 commandes, tâche `auto_resolve` horaire, sync commands Discord. |
+| `database.py` | Couche SQLite. 2 tables (`predictions`, `match_results`), 6 fonctions. |
+| `requirements.txt` | ⚠️ Contient `httpx`, `flask`, `stripe` — plus utilisés. À nettoyer. |
 
 ### Commandes
 
 | Fichier | Rôle |
 |---|---|
-| `commands/prono.py` | `/prono` — lit `wc2026_fixtures.csv` (lru_cache), affiche le Select UI, appelle `predict_match()` dans un thread (blocking → async), sauvegarde en DB. |
-| `commands/standings.py` | `/standings` — lit DB pour les scores réels, calcule classement (points/GD/GF), appelle `predict_match()` pour les matchs à venir. |
-| `commands/accuracy.py` | `/accuracy` — appelle `database.get_stats()`, formate en message Discord. |
+| `commands/prono.py` | `/prono` — fixtures (lru_cache), Select UI, `predict_match()` en thread async. |
+| `commands/standings.py` | `/standings` — scores réels depuis DB, classement calculé, `predict_match()` pour matchs à venir. |
+| `commands/accuracy.py` | `/accuracy` — `get_stats()` → message Discord. |
 
 ### Services
 
 | Fichier | Rôle |
 |---|---|
-| `services/ml_model.py` | `format_result(dict) → str`. Fonction pure de formatage. Barres Unicode, bold sur la prédiction, indicateur de confiance. |
-| `services/wc_resolver.py` | Résolution horaire. Appelle football-data.org, mappe les noms (10 entrées dans `_FDORG_TO_FIXTURE`), résout les prédictions DB, enregistre les scores, déclenche la mise à jour ELO. |
-| `services/elo_updater.py` | Mise à jour ELO post-match. Lit `elo_history.csv` + `wc_elo_updates.csv`, calcule les nouveaux ELO (K=40), appende dans `wc_elo_updates.csv`, invalide le cache de `predict.py`. |
+| `services/ml_model.py` | `format_result(dict) → str`. Barres Unicode, bold prédiction, `_confidence_label()`. Fonction pure. |
+| `services/wc_resolver.py` | Résolution horaire. football-data.org → mappe noms (10 entrées) → résout DB → enregistre scores → déclenche ELO update. |
+| `services/elo_updater.py` | Post-match ELO. Lit `elo_history.csv` + `wc_elo_updates.csv`, calcule nouveaux ELO (K=40), appende, invalide cache `predict.py`. |
 
 ### ML
 
 | Fichier | Rôle |
 |---|---|
-| `ml/features.py` | Feature engineering. Filtre les matchs sans score (`dropna`), calcule ELO pré-match (`shift(1)`), forme rolling 5 matchs (`shift(1) + rolling(5)`), H2H pre-indexé. Exporte `FEATURE_COLS` (16 features). |
-| `ml/train.py` | Entraînement. Baseline ELO naïf, XGBoost avec `compute_sample_weight('balanced')`, calibration isotonique (pour analyse), optimisation de seuil (pour analyse). **Sauvegarde le XGBoost brut.** |
-| `ml/predict.py` | Inférence. `lru_cache` sur results.csv + elo_history.csv + model.pkl. Fusionne `wc_elo_updates.csv` si existant. API publique : `predict_match(home, away, date)`. |
-| `ml/pipeline.py` | Orchestrateur. `features → train → run_wc2026`. Skip les étapes existantes. `--force` pour tout recalculer. |
-| `ml/run_wc2026.py` | Batch predictions. Lit `wc2026_fixtures.csv`, prédit les 72 matchs, affiche par groupe, sauvegarde `wc2026_predictions.csv`. |
+| `ml/features.py` | Feature engineering. `dropna` des matchs sans score, ELO pré-match (`shift(1)`), forme rolling (`shift(1) + rolling(5)`), H2H pre-indexé. 16 features. |
+| `ml/train.py` | XGBoost + `compute_sample_weight('balanced')`. Calibration et seuil nul analysés mais non retenus. Sauvegarde XGBoost brut. |
+| `ml/predict.py` | Inférence. `lru_cache` sur données + modèle. Fusionne `wc_elo_updates.csv` si présent. |
+| `ml/pipeline.py` | Orchestrateur `features → train → run_wc2026`. `--force` pour tout recalculer. |
+| `ml/run_wc2026.py` | Batch 72 matchs → `wc2026_predictions.csv`. Analyse uniquement, non utilisé par le bot. |
 
 ### Base de données (SQLite — `football.db`)
 
-**Table `predictions`** : prédictions des utilisateurs via `/prono`
+**Table `predictions`** : prédictions utilisateur via `/prono`
 ```
-match_id (UNIQUE), competition, home_team, away_team,
-predicted_home_goals, predicted_away_goals, predicted_result,
-actual_home_goals, actual_away_goals, actual_result,
-is_correct_result, is_correct_score, created_at, resolved_at
+match_id, competition, home/away_team, predicted_result,
+actual_result, is_correct_result, created_at, resolved_at
 ```
 
-**Table `match_results`** : scores réels des matchs joués (source : wc_resolver)
+**Table `match_results`** : scores réels (source : wc_resolver)
 ```
-match_id (PRIMARY KEY), home_team, away_team,
-home_score, away_score, match_group, match_date
+match_id, home/away_team, home/away_score, match_group, match_date
 ```
-
-**Pas de `server.py`** : le webhook Stripe/Flask n'existe pas dans la codebase actuelle.
 
 ### Données ML (`ml/data/`)
 
 | Fichier | Taille | Rôle | Commitable |
 |---|---|---|---|
-| `results.csv` | 3.7 MB | Mart Jürisoo — 49 287 matchs internationaux 1872-2024 + 72 WC 2026 (NaN scores) | ✅ oui |
-| `elo_history.csv` | 3.9 MB | ELO après chaque match historique. **⚠️ CORROMPU** — inclut les WC 2026 avec NaN traités comme défaites. À régénérer. | ✅ oui |
-| `wc2026_fixtures.csv` | 7.4 KB | Calendrier officiel CdM 2026 (104 matchs). Groupe stage : équipes réelles. KO : TBD. | ✅ oui |
-| `wc2026_teams.csv` | 1.2 KB | Mapping FIFA name → dataset name (10 entrées divergentes). | ✅ oui |
-| `wc2026_predictions.csv` | 5.7 KB | Prédictions batch pré-générées. **⚠️ BASÉ SUR ELO CORROMPU.** À régénérer. | ✅ oui |
-| `features.csv` | 8.7 MB | Feature matrix pour entraînement. **⚠️ BASÉ SUR ELO CORROMPU.** À régénérer. | ❌ .gitignore |
-| `elo_history.csv` (ELO legacy) | — | `elo_latest.csv`, `elo_wc2026.csv` — produits du notebook, non utilisés en prod. | ✅ oui |
-| `wc_elo_updates.csv` | N/A | Généré en prod après chaque match joué. Absent localement. | ❌ runtime only |
+| `results.csv` | 3.7 MB | 49 215 matchs avec score + 72 WC 2026 (NaN, ignorés par `dropna`) | ✅ |
+| `elo_history.csv` | 3.9 MB | ELO propre après chaque match historique (98 430 lignes) | ✅ |
+| `wc2026_fixtures.csv` | 7.4 KB | Calendrier CdM 2026 (104 matchs). KO : TBD. | ✅ |
+| `wc2026_teams.csv` | 1.2 KB | Mapping FIFA → dataset (8 divergences) | ✅ |
+| `wc2026_predictions.csv` | 5.7 KB | Prédictions batch pré-générées. Référence uniquement, non utilisé en prod. | ✅ |
+| `model_config.json` | 1 KB | draw_threshold, métriques finales, features | ✅ |
+| `features.csv` | 8.7 MB | Feature matrix entraînement. Régénérable. | ❌ .gitignore |
+| `wc_elo_updates.csv` | runtime | Delta ELO matchs CdM joués. Généré en prod. | ❌ runtime |
 
 ---
 
 ## 3. État du pipeline ML
 
-### Architecture décidée
-- **Algorithme** : XGBoost (`multi:softprob`, 3 classes)
-- **Class weights** : `compute_sample_weight('balanced')` — rééquilibre les nuls (~25%)
-- **Calibration** : analysée mais **non retenue** pour le modèle final
-- **Seuil nul** : analysé mais **non retenu** (draw_threshold = null dans model_config)
-- **Décision finale** : XGBoost brut + class weights = meilleur compromis accuracy/recall nuls
+### Modèle final (propre depuis le 04/06/2026)
+- **Algorithme** : XGBoost `multi:softprob` + `compute_sample_weight('balanced')`
+- **draw_threshold** : null (argmax brut)
+- **Calibration** : analysée, non retenue
+- **Données** : 49 215 matchs avec score (NaN exclus par `dropna`)
 
 ### Features (16)
 ```
@@ -121,97 +151,89 @@ H2H         : h2h_home_pts, h2h_gd, h2h_n
 Contexte    : is_neutral, tournament_tier
 ```
 
+### Métriques finales (ELO propre, test 2022-2024)
+
+| Métrique | Validation | Test |
+|---|---|---|
+| Accuracy | 55.48% | 55.35% |
+| Log-loss | 0.8946 | 0.9218 |
+| Recall nuls | 37.35% | 33.29% |
+
 ### Split temporel
 ```
-Train  : ≤ 2017-12-31
-Val    : 2018-01-01 → 2021-12-31  (early stopping XGBoost)
-Test   : 2022-01-01 → 2024-12-31  (verdict final, touché une seule fois)
+Train : ≤ 2017-12-31
+Val   : 2018-01-01 → 2021-12-31  (early stopping)
+Test  : 2022-01-01 → 2024-12-31  (verdict final — touché une seule fois)
 ```
-
-### Métriques
-**⚠️ `model.pkl`, `metrics.json`, `model_config.json` sont basés sur l'ELO corrompu.**
-Le pipeline n'a pas encore été relancé après le fix du 03/06 (`dropna` sur les matchs NaN).
-
-**Action requise avant la mise en prod** :
-1. Régénérer `elo_history.csv` via le notebook (ajouter la cellule `dropna` avant la boucle ELO)
-2. `python -m ml.pipeline --force`
 
 ### ELO en temps réel (prod)
 - `elo_history.csv` : source immuable (1872-2024)
-- `wc_elo_updates.csv` : delta live (2 lignes par match joué, K=40)
-- Fusion automatique dans `predict.py._data()` à chaque inférence après invalidation du cache
-- **⚠️ Non persisté entre redémarrages Railway** (filesystem éphémère)
+- `wc_elo_updates.csv` : delta live, 2 lignes par match joué (K=40)
+- Cache `predict.py` invalidé automatiquement après chaque update
+- ⚠️ Non persisté entre redémarrages Railway (voir priorité 1 ci-dessous)
 
 ---
 
 ## 4. Ce qui fonctionne en prod vs en cours
 
-### ✅ Fonctionnel en prod (Railway)
-- Bot Discord connecté et actif
-- `/prono` : prédictions ML pour les 72 matchs du groupe stage
-- `/standings` : classement en temps réel (vide tant que des matchs ne sont pas joués)
-- `/accuracy` : affichage de la précision (vide tant que des matchs ne sont pas résolus)
-- `auto_resolve` : tâche horaire qui tente de résoudre les prédictions via football-data.org
-- ELO mis à jour automatiquement après chaque match (si `wc_elo_updates.csv` existe)
+### ✅ Fonctionnel
+- Bot Discord actif sur Railway
+- Modèle propre déployé (ELO corrigé, XGBoost brut, class weights)
+- `/prono` : prédictions à la volée, toutes les 12 équipes A-L
+- `/standings` : prêt (vide jusqu'au 1er match le 11/06)
+- `/accuracy` : prêt (vide jusqu'aux premières résolutions)
+- `auto_resolve` : tâche horaire active
+- ELO mis à jour automatiquement après chaque match joué
 
-### ⚠️ En attente / action requise
-- **ELO et modèle corrompus** : régénération nécessaire avant le 11/06 (premier match)
-- **`wc_elo_updates.csv` non persisté** : si Railway redémarre en cours de tournoi, l'ELO CdM est perdu. Les prédictions reprendront depuis l'ELO pré-CdM.
-- **Résolution des prédictions WC** : fonctionne seulement si l'utilisateur a utilisé `/prono` pour ce match (sinon pas de prédiction à résoudre) ET si le mapping `_FDORG_TO_FIXTURE` est complet
-- **`/standings` Groupe stage seulement** : les phases éliminatoires ne seront pas prédites automatiquement
+### ⚠️ Risques en prod
+- **`wc_elo_updates.csv` non persisté** : perdu si Railway redémarre. Les prédictions reprennent depuis l'ELO pré-CdM.
+- **Mapping `_FDORG_TO_FIXTURE`** : si football-data.org utilise un nom d'équipe non mappé, le resolver log un warning et skip le match.
+- **`/accuracy` non représentatif** : ne compte que les matchs où un utilisateur a fait `/prono`.
 
 ### ❌ Non implémenté
-- `server.py` (Flask/Stripe) : absent de la codebase
-- Monétisation / premium
+- Monétisation (Stripe, rôles premium)
 - Commandes admin (résolution manuelle, mise à jour bracket KO)
-- Résolution automatique pour les matchs sans prédiction DB
-- Persistance de `wc_elo_updates.csv` entre redémarrages Railway
+- Résolution automatique pour matchs sans prédiction DB
+- Phases éliminatoires (équipes TBD)
 
 ---
 
 ## 5. Ce qui manque pour un produit complet
 
 ### Monétisation
-- Système de tiers (gratuit : N prédictions/jour, premium : illimité)
-- Intégration Stripe (paiement) + Flask webhook (confirmation)
-- Rôle Discord "Premium" accordé automatiquement post-paiement
-- Commande `/premium` avec lien de checkout
+- Système de tiers : gratuit (N /prono par jour), premium (illimité)
+- Stripe checkout + Flask webhook → rôle Discord "Premium" automatique
+- Commande `/premium` avec lien de paiement
 
 ### Déploiement
-- **Volume Railway persistant** pour `wc_elo_updates.csv` (sinon ELO perdu au redémarrage)
-- Nettoyage `requirements.txt` : retirer `httpx`, `flask`, `stripe` (plus utilisés)
-- Monitoring : alertes si `auto_resolve` échoue ou si football-data.org est down
-- Rollback propre si `model.pkl` est corrompu au démarrage
+- Volume Railway persistant pour `wc_elo_updates.csv`
+- Nettoyage `requirements.txt` : retirer `httpx`, `flask`, `stripe`
+- Monitoring : alerte si `auto_resolve` échoue 3 cycles consécutifs
 
 ### Features ML
-- **Phases éliminatoires** : commande admin `/admin fixture <num> <home> <away>` pour remplir le bracket + prédictions automatiques
-- **Résolution complète** : enregistrer TOUS les matchs WC en DB (pas seulement ceux prédits via `/prono`) pour que `/accuracy` reflète la réalité complète
-- **Calibration courbe fiabilité** : vérifier que "60% France" → France gagne ~60% du temps sur les matchs résolus
-- **Features supplémentaires** : rang FIFA, absences joueurs clés, distance parcourue (fatigue)
-- **Retrain en cours de tournoi** : après la phase de groupes, réentraîner sur les données CdM 2026 pour affiner les prédictions KO
+- Phases éliminatoires : commande admin `/admin fixture <num> <home> <away>`
+- `/accuracy` complet : pré-remplir `predictions` au démarrage pour tous les matchs du groupe stage avec la prédiction du modèle (pas seulement quand l'utilisateur fait `/prono`)
+- Retrain post-groupe-stage : réentraîner sur les résultats CdM 2026 avant les KO
 
 ### UX Discord
-- Notification automatique ("prochain match dans 2h : voici la prédiction") via webhook
-- Historique des prédictions par utilisateur
-- Commande `/bracket` pour afficher l'arbre des phases éliminatoires
+- Notification proactive (webhook) : "dans 2h : France vs Senegal — voici la prédiction"
+- `/bracket` : arbre des phases éliminatoires
 
 ---
 
 ## 6. Les 3 prochaines étapes prioritaires
 
-### Étape 1 — Régénérer le modèle avant le 11/06 (URGENT)
-Le modèle actuel est entraîné sur des ELO corrompus. Avant le premier match (11 juin) :
-1. Ajouter la cellule `dropna` dans le notebook avant la boucle ELO
-2. Re-run le notebook complet → génère `elo_history.csv` propre
-3. `python -m ml.pipeline --force` → génère features, modèle, et prédictions
-4. Committer `model.pkl`, `model_config.json`, `metrics.json`, `wc2026_predictions.csv`
-
-### Étape 2 — Persistance de l'ELO sur Railway (AVANT LE 11/06)
-Railway redémarre le pod à chaque déploiement. `wc_elo_updates.csv` est sur le filesystem éphémère → perdu à chaque redémarrage. Solution : après chaque journée, committer `wc_elo_updates.csv` dans git et pusher. Le bot rechargera le fichier depuis le repo au prochain démarrage.
-Commande à lancer localement après chaque journée de groupe :
+### Étape 1 — Persistance ELO entre redémarrages Railway (AVANT LE 11/06)
+Après chaque journée de groupe, committer `wc_elo_updates.csv` :
 ```bash
-git add ml/data/wc_elo_updates.csv && git commit -m "chore: wc_elo_updates journee X" && git push
+git add ml/data/wc_elo_updates.csv
+git commit -m "chore: wc_elo_updates journee X"
+git push
 ```
+Railway rechargera le fichier depuis le repo au prochain démarrage.
 
-### Étape 3 — Résolution complète et `/accuracy` significatif
-Actuellement, `/accuracy` ne compte que les matchs pour lesquels un utilisateur a fait `/prono`. Pour avoir des stats représentatives, le resolver devrait enregistrer TOUS les matchs WC dans `match_results` ET dans `predictions` (avec la prédiction du modèle, pas seulement de l'utilisateur). Cela signifie pré-remplir `predictions` au démarrage du bot pour tous les matchs du groupe stage, avec la prédiction ML correspondante.
+### Étape 2 — `/accuracy` représentatif dès le premier match
+Pré-remplir la table `predictions` au démarrage du bot pour tous les matchs du groupe stage avec la prédiction du modèle. Actuellement, `/accuracy` est vide si personne n'a fait `/prono`. Avec le pré-remplissage, la précision du modèle sera tracée automatiquement.
+
+### Étape 3 — Nettoyage `requirements.txt`
+Retirer `httpx` (0.27.2), `flask` (3.1.1), `stripe` (12.2.0) — plus aucun fichier ne les importe. Alléger le container Railway.
