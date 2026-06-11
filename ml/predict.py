@@ -224,21 +224,41 @@ def predict_match(
     features  = build_match_features(home_ds, away_ds, dt, is_neutral, tournament_tier)
     proba     = _model().predict_proba(features)[0]  # [P(away), P(draw), P(home)]
     pred_idx  = int(np.argmax(proba))
+    prediction = LABEL_MAP[pred_idx]
+
+    # Score estimé à partir de la forme offensive pondérée par l'avantage ELO
+    elo_diff_val  = float(features["elo_diff"].iloc[0])
+    expected_home = float(features["home_form_gf"].iloc[0]) * (1 + elo_diff_val / 2000)
+    expected_away = float(features["away_form_gf"].iloc[0]) * (1 - elo_diff_val / 2000)
+
+    pred_score_home = max(0, round(expected_home))
+    pred_score_away = max(0, round(expected_away))
+
+    # Cohérence score / prédiction : le sens du score doit suivre le vainqueur prédit
+    if prediction == "home" and pred_score_home <= pred_score_away:
+        pred_score_home, pred_score_away = pred_score_away, pred_score_home
+    elif prediction == "away" and pred_score_home >= pred_score_away:
+        pred_score_home, pred_score_away = pred_score_away, pred_score_home
+    elif prediction == "draw":
+        avg = round((pred_score_home + pred_score_away) / 2)
+        pred_score_home, pred_score_away = avg, avg
 
     return {
-        "home_team":     home_team,
-        "away_team":     away_team,
-        "date":          date,
-        "prediction":    LABEL_MAP[pred_idx],
-        "prediction_fr": LABEL_FR[pred_idx],
-        "confidence":    round(float(proba[pred_idx]), 3),
+        "home_team":          home_team,
+        "away_team":          away_team,
+        "date":               date,
+        "prediction":         prediction,
+        "prediction_fr":      LABEL_FR[pred_idx],
+        "confidence":         round(float(proba[pred_idx]), 3),
         "probabilities": {
             "home": round(float(proba[2]), 3),
             "draw": round(float(proba[1]), 3),
             "away": round(float(proba[0]), 3),
         },
-        "elo_home": round(float(features["elo_home"].iloc[0]), 1),
-        "elo_away": round(float(features["elo_away"].iloc[0]), 1),
+        "elo_home":           round(float(features["elo_home"].iloc[0]), 1),
+        "elo_away":           round(float(features["elo_away"].iloc[0]), 1),
+        "predicted_score_home": pred_score_home,
+        "predicted_score_away": pred_score_away,
     }
 
 

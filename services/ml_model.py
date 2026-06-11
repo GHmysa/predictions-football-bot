@@ -34,9 +34,15 @@ def format_result(r: dict) -> str:
     def _bold(label: str, key: str) -> str:
         return f"**{label}**" if r["prediction"] == key else label
 
+    score_line = ""
+    sh = r.get("predicted_score_home")
+    sa = r.get("predicted_score_away")
+    if sh is not None and sa is not None:
+        score_line = f"\n🎯 Score prédit : **{sh} – {sa}**"
+
     lines = [
         f"## {r['home_team']}  vs  {r['away_team']}",
-        f"📅 {r['date']}  •  ELO : {r['elo_home']:.0f} vs {r['elo_away']:.0f}  •  _{conf}_",
+        f"📅 {r['date']}  •  ELO : {r['elo_home']:.0f} vs {r['elo_away']:.0f}  •  _{conf}_{score_line}",
         "",
         f"{_bold('🏠 Victoire ' + r['home_team'], 'home')}",
         f"`{_bar(p['home'])}` {p['home']:.0%}",
