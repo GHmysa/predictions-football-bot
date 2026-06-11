@@ -15,11 +15,12 @@ def _confidence_label(max_prob: float) -> str:
     Indicateur qualitatif de la certitude du modèle.
     Basé sur la probabilité de l'issue la plus probable.
     """
-    if max_prob > 0.55:
+    if max_prob >= 0.60:
         return "Favori clair"
-    if max_prob < 0.45:
+    elif max_prob >= 0.50:
+        return "Légère faveur"
+    else:
         return "Match serré"
-    return "Légère faveur"
 
 
 def format_result(r: dict) -> str:
@@ -52,7 +53,5 @@ def format_result(r: dict) -> str:
         "",
         f"{_bold('✈️ Victoire ' + r['away_team'], 'away')}",
         f"`{_bar(p['away'])}` {p['away']:.0%}",
-        "",
-        f"**{r['prediction_fr']}** — {conf} ({r['confidence']:.0%})",
     ]
     return "\n".join(lines)
