@@ -25,8 +25,10 @@ from sklearn.utils.class_weight import compute_sample_weight
 from xgboost import XGBClassifier
 
 from ml.features import DATA_DIR, FEATURE_COLS, build_features
+from ml.wc_features import WC_FEATURE_COLS, build_wc_features
 
 MODEL_PATH        = Path(__file__).parent / "model.pkl"
+MODEL_WC_PATH     = Path(__file__).parent / "model_wc.pkl"
 METRICS_PATH      = Path(__file__).parent / "metrics.json"
 MODEL_CONFIG_PATH = Path(__file__).parent / "model_config.json"
 
@@ -85,9 +87,9 @@ def evaluate(
         ll = log_loss(y_true, y_proba, labels=[0, 1, 2])
         metrics["log_loss"] = round(float(ll), 4)
 
-    print(f"\n{'─'*44}")
+    print(f"\n{'-'*44}")
     print(f"  {name}")
-    print(f"{'─'*44}")
+    print(f"{'-'*44}")
     print(f"  Accuracy  : {acc:.4f}  ({int(acc * len(y_true))}/{len(y_true)})")
     if y_proba is not None:
         print(f"  Log-loss  : {ll:.4f}")
@@ -213,7 +215,7 @@ def train(features_path: str | Path | None = None) -> XGBClassifier:
     # Le val set sert de données d'optimisation — jamais le test set.
     print("\n=== OPTIMISATION DU SEUIL NULS (val set) ===")
     print(f"  {'Seuil':>6}  {'Accuracy':>8}  {'Recall nuls':>11}  {'Score':>7}")
-    print(f"  {'─'*40}")
+    print(f"  {'-'*40}")
 
     best_score     = -1.0
     best_threshold = 0.25
@@ -247,11 +249,11 @@ def train(features_path: str | Path | None = None) -> XGBClassifier:
     )
 
     # --- Résumé comparatif ---
-    print(f"\n{'═'*52}")
+    print(f"\n{'='*52}")
     print(f"  RÉSUMÉ COMPARATIF (test set)")
-    print(f"{'═'*52}")
+    print(f"{'='*52}")
     print(f"  {'Modèle':<36} {'Acc':>6}  {'Log-loss':>8}  {'Recall nuls':>11}")
-    print(f"  {'─'*50}")
+    print(f"  {'-'*50}")
     rows = [
         ("Baseline ELO",                        baseline_test["accuracy"], None,                 baseline_test["draw_recall"]),
         ("XGBoost",                             xgb_test["accuracy"],      xgb_test["log_loss"], xgb_test["draw_recall"]),
@@ -316,5 +318,94 @@ def train(features_path: str | Path | None = None) -> XGBClassifier:
     return xgb
 
 
+def train_wc() -> XGBClassifier:
+    """
+    Entraîne un modèle XGBoost spécialisé sur les matchs de Coupe du Monde.
+
+    Split temporel WC :
+      train  : 2002–2014  (256 matchs, 4 éditions)
+      val    : 2018       ( 64 matchs)
+      test   : 2022       ( 64 matchs)
+
+    Enrichi des features wc_teams (ranking FIFA, valeur marchande, palmarès).
+    """
+    df = build_wc_features()
+
+    train_df = df[df["date"].dt.year <= 2014]
+    val_df   = df[df["date"].dt.year == 2018]
+    test_df  = df[df["date"].dt.year == 2022]
+
+    print(f"\nDataset WC : {len(df)} matchs ({len(WC_FEATURE_COLS)} features)")
+    print(f"  Train (2002-2014) : {len(train_df):>4}  |  Val (2018) : {len(val_df):>3}  |  Test (2022) : {len(test_df):>3}")
+
+    X_train = train_df[WC_FEATURE_COLS].values
+    y_train = train_df[TARGET_COL].values
+    X_val   = val_df[WC_FEATURE_COLS].values
+    y_val   = val_df[TARGET_COL].values
+    X_test  = test_df[WC_FEATURE_COLS].values
+    y_test  = test_df[TARGET_COL].values
+
+    sample_weights = compute_sample_weight("balanced", y_train)
+
+    print("\n=== BASELINE ELO (WC uniquement) ===")
+    evaluate("Baseline — val WC",  y_val,  baseline_predict(val_df[WC_FEATURE_COLS]))
+    baseline_test_wc = evaluate("Baseline — test WC", y_test, baseline_predict(test_df[WC_FEATURE_COLS]))
+
+    xgb_wc = XGBClassifier(
+        n_estimators=300,
+        max_depth=3,
+        learning_rate=0.05,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        objective="multi:softprob",
+        num_class=3,
+        eval_metric="mlogloss",
+        early_stopping_rounds=30,
+        random_state=42,
+        n_jobs=-1,
+        verbosity=0,
+    )
+
+    xgb_wc.fit(
+        X_train, y_train,
+        sample_weight=sample_weights,
+        eval_set=[(X_val, y_val)],
+        verbose=False,
+    )
+
+    print(f"\nXGBoost WC best iteration : {xgb_wc.best_iteration}")
+
+    print("\n=== XGBOOST WC ===")
+    wc_val_proba  = xgb_wc.predict_proba(X_val)
+    wc_test_proba = xgb_wc.predict_proba(X_test)
+    evaluate("XGBoost WC — val",  y_val,  xgb_wc.predict(X_val),  wc_val_proba)
+    wc_test = evaluate("XGBoost WC — test", y_test, xgb_wc.predict(X_test), wc_test_proba)
+
+    print(f"\n{'='*52}")
+    print(f"  RÉSUMÉ WC (test set = WC 2022)")
+    print(f"{'='*52}")
+    print(f"  {'Modèle':<30} {'Acc':>6}  {'Log-loss':>8}")
+    print(f"  {'-'*46}")
+    rows = [
+        ("Baseline ELO (WC)", baseline_test_wc["accuracy"], None),
+        ("XGBoost WC",        wc_test["accuracy"],          wc_test["log_loss"]),
+    ]
+    for label, acc, ll in rows:
+        ll_str = f"{ll:.4f}" if ll is not None else "    -   "
+        print(f"  {label:<30} {acc:.4f}  {ll_str}")
+
+    importance = pd.Series(xgb_wc.feature_importances_, index=WC_FEATURE_COLS).sort_values(ascending=False)
+    print(f"\nFeature importance WC (top 10) :")
+    print(importance.head(10).map("{:.4f}".format).to_string())
+
+    with open(MODEL_WC_PATH, "wb") as f:
+        pickle.dump(xgb_wc, f)
+    print(f"\nModèle WC sauvegardé -> {MODEL_WC_PATH}")
+
+    return xgb_wc
+
+
 if __name__ == "__main__":
     train()
+    print("\n" + "=" * 60)
+    train_wc()
