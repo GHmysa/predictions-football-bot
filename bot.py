@@ -12,6 +12,7 @@ from commands.prono import setup as setup_prono, _fixtures, MATCH_ID_OFFSET, WC_
 from commands.accuracy import setup as setup_accuracy
 from commands.standings import setup as setup_standings
 from commands.simulate import setup as setup_simulate
+from commands.admin import setup as setup_admin
 from services.wc_resolver import resolve_wc_predictions
 from ml.predict import predict_match
 import database
@@ -27,6 +28,7 @@ setup_prono(tree)
 setup_accuracy(tree)
 setup_standings(tree)
 setup_simulate(tree)
+setup_admin(tree)
 
 
 async def _prefill_predictions() -> None:
