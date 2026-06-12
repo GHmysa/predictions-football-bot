@@ -265,27 +265,31 @@ def predict_match(
     dt      = pd.Timestamp(date)
 
     features = build_match_features(home_ds, away_ds, dt, is_neutral, tournament_tier)
-    proba    = _model().predict_proba(features)[0]  # [P(away), P(draw), P(home)]
-    pred_idx  = int(np.argmax(proba))
-    prediction = LABEL_MAP[pred_idx]
+    score    = _poisson_score(home_ds, away_ds, _poisson_params(), is_neutral=is_neutral)
 
-    score = _poisson_score(home_ds, away_ds, _poisson_params(), is_neutral=is_neutral)
-    matrix = score["score_matrix"]
-
-    # Most likely score consistent with the XGBoost prediction
-    if prediction == "home":
-        masked = np.tril(matrix, -1)           # home goals > away goals
-    elif prediction == "away":
-        masked = np.triu(matrix, 1)            # away goals > home goals
-    else:
-        diag = np.diag(np.diag(matrix))        # home goals == away goals
-        masked = diag
-
-    if masked.sum() > 0:
-        best = np.unravel_index(np.argmax(masked), masked.shape)
-        pred_score_home, pred_score_away = int(best[0]), int(best[1])
-    else:
+    if tournament_tier == 4:
+        # Pour les matchs WC : issue et score tous les deux depuis Poisson (54.7% sur WC 2022)
+        proba = np.array([score["p_away"], score["p_draw"], score["p_home"]])
         pred_score_home, pred_score_away = score["most_likely_score"]
+    else:
+        # Matchs ordinaires : XGBoost pour l'issue, Poisson conditionné pour le score
+        proba = _model().predict_proba(features)[0]  # [P(away), P(draw), P(home)]
+        prediction = LABEL_MAP[int(np.argmax(proba))]
+        matrix = score["score_matrix"]
+        if prediction == "home":
+            masked = np.tril(matrix, -1)
+        elif prediction == "away":
+            masked = np.triu(matrix, 1)
+        else:
+            masked = np.diag(np.diag(matrix))
+        if masked.sum() > 0:
+            best = np.unravel_index(np.argmax(masked), masked.shape)
+            pred_score_home, pred_score_away = int(best[0]), int(best[1])
+        else:
+            pred_score_home, pred_score_away = score["most_likely_score"]
+
+    pred_idx   = int(np.argmax(proba))
+    prediction = LABEL_MAP[pred_idx]
 
     return {
         "home_team":          home_team,

@@ -1,73 +1,73 @@
 group,date,home_team,away_team,prediction,conf,p_home,p_draw,p_away,elo_home,elo_away
-A,2026-06-11,Mexico,South Africa,Victoire domicile,49%,49%,32%,19%,1851.5,1634.6
-A,2026-06-12,Korea Republic,Czechia,Victoire domicile,35%,35%,30%,34%,1805.9,1708.8
-B,2026-06-12,Canada,Bosnia and Herzegovina,Victoire domicile,36%,36%,33%,32%,1784.5,1604.6
-D,2026-06-13,USA,Paraguay,Victoire domicile,41%,41%,32%,27%,1801.5,1775.5
-B,2026-06-13,Qatar,Switzerland,Victoire extérieur,51%,24%,24%,51%,1634.2,1830.8
-C,2026-06-13,Brazil,Morocco,Victoire domicile,41%,41%,27%,32%,1919.6,1889.8
-C,2026-06-14,Haiti,Scotland,Victoire extérieur,47%,23%,30%,47%,1595.0,1712.3
-D,2026-06-14,Australia,Türkiye,Victoire extérieur,47%,20%,34%,47%,1803.5,1828.3
-E,2026-06-14,Germany,Curaçao,Victoire domicile,48%,48%,27%,24%,1907.0,1532.0
-F,2026-06-14,Netherlands,Japan,Victoire domicile,38%,38%,34%,28%,1907.7,1881.2
-E,2026-06-14,Côte d'Ivoire,Ecuador,Match nul,43%,27%,43%,30%,1736.0,1866.3
-F,2026-06-15,Sweden,Tunisia,Match nul,43%,36%,43%,21%,1726.4,1679.3
-H,2026-06-15,Spain,Cabo Verde,Victoire domicile,39%,39%,34%,27%,2039.8,1611.0
-G,2026-06-15,Belgium,Egypt,Victoire domicile,55%,55%,25%,19%,1849.8,1746.4
-H,2026-06-15,Saudi Arabia,Uruguay,Victoire extérieur,43%,32%,25%,43%,1658.8,1848.1
-G,2026-06-16,IR Iran,New Zealand,Victoire domicile,43%,43%,33%,24%,1813.4,1669.7
-I,2026-06-16,France,Senegal,Victoire domicile,46%,46%,28%,27%,1989.4,1835.3
-I,2026-06-16,Iraq,Norway,Victoire extérieur,46%,20%,34%,46%,1708.0,1789.7
-J,2026-06-17,Argentina,Algeria,Victoire domicile,45%,45%,26%,29%,2026.7,1778.5
-J,2026-06-17,Austria,Jordan,Victoire domicile,45%,45%,35%,20%,1794.5,1688.3
-K,2026-06-17,Portugal,Congo DR,Victoire domicile,45%,45%,34%,21%,1903.5,1678.2
-L,2026-06-17,England,Croatia,Victoire domicile,46%,46%,28%,25%,1935.6,1861.8
-L,2026-06-17,Ghana,Panama,Victoire extérieur,40%,30%,31%,40%,1571.0,1743.2
-K,2026-06-18,Uzbekistan,Colombia,Victoire extérieur,42%,22%,36%,42%,1763.3,1902.5
-A,2026-06-18,Czechia,South Africa,Victoire domicile,44%,44%,38%,18%,1708.8,1634.6
-B,2026-06-18,Switzerland,Bosnia and Herzegovina,Victoire domicile,37%,37%,37%,27%,1830.8,1604.6
-B,2026-06-18,Canada,Qatar,Victoire domicile,36%,36%,36%,28%,1784.5,1634.2
-A,2026-06-19,Mexico,Korea Republic,Victoire domicile,44%,44%,30%,26%,1851.5,1805.9
-D,2026-06-19,USA,Australia,Victoire domicile,38%,38%,35%,27%,1801.5,1803.5
-C,2026-06-19,Scotland,Morocco,Victoire extérieur,61%,16%,23%,61%,1712.3,1889.8
-C,2026-06-20,Brazil,Haiti,Victoire domicile,44%,44%,34%,23%,1919.6,1595.0
-D,2026-06-20,Türkiye,Paraguay,Victoire domicile,52%,52%,26%,22%,1828.3,1775.5
-F,2026-06-20,Netherlands,Sweden,Victoire domicile,47%,47%,32%,21%,1907.7,1726.4
-E,2026-06-20,Germany,Côte d'Ivoire,Victoire domicile,57%,57%,24%,18%,1907.0,1736.0
-E,2026-06-21,Ecuador,Curaçao,Victoire domicile,37%,37%,29%,34%,1866.3,1532.0
-F,2026-06-21,Tunisia,Japan,Victoire extérieur,66%,14%,20%,66%,1679.3,1881.2
-H,2026-06-21,Spain,Saudi Arabia,Victoire domicile,39%,39%,32%,29%,2039.8,1658.8
-G,2026-06-21,Belgium,IR Iran,Victoire domicile,51%,51%,28%,21%,1849.8,1813.4
-H,2026-06-21,Uruguay,Cabo Verde,Victoire domicile,38%,38%,38%,24%,1848.1,1611.0
-G,2026-06-22,New Zealand,Egypt,Victoire extérieur,40%,22%,38%,40%,1669.7,1746.4
-J,2026-06-22,Argentina,Austria,Victoire domicile,47%,47%,24%,29%,2026.7,1794.5
-I,2026-06-22,France,Iraq,Victoire domicile,42%,42%,32%,26%,1989.4,1708.0
-I,2026-06-23,Norway,Senegal,Match nul,40%,23%,40%,37%,1789.7,1835.3
-J,2026-06-23,Jordan,Algeria,Victoire extérieur,49%,18%,34%,49%,1688.3,1778.5
-K,2026-06-23,Portugal,Uzbekistan,Victoire domicile,48%,48%,32%,20%,1903.5,1763.3
-L,2026-06-23,England,Ghana,Victoire domicile,46%,46%,33%,21%,1935.6,1571.0
-L,2026-06-23,Panama,Croatia,Victoire extérieur,47%,18%,36%,47%,1743.2,1861.8
-K,2026-06-24,Colombia,Congo DR,Victoire domicile,41%,41%,36%,23%,1902.5,1678.2
-B,2026-06-24,Switzerland,Canada,Victoire domicile,42%,42%,30%,28%,1830.8,1784.5
-B,2026-06-24,Bosnia and Herzegovina,Qatar,Match nul,39%,38%,39%,24%,1604.6,1634.2
-C,2026-06-24,Scotland,Brazil,Victoire extérieur,55%,22%,23%,55%,1712.3,1919.6
-C,2026-06-24,Morocco,Haiti,Victoire domicile,45%,45%,32%,24%,1889.8,1595.0
-A,2026-06-25,Czechia,Mexico,Match nul,38%,26%,38%,36%,1708.8,1851.5
-A,2026-06-25,South Africa,Korea Republic,Victoire extérieur,48%,24%,28%,48%,1634.6,1805.9
-E,2026-06-25,Curaçao,Côte d'Ivoire,Victoire extérieur,47%,24%,29%,47%,1532.0,1736.0
-E,2026-06-25,Ecuador,Germany,Victoire extérieur,52%,16%,32%,52%,1866.3,1907.0
-F,2026-06-25,Japan,Sweden,Victoire domicile,42%,42%,28%,30%,1881.2,1726.4
-F,2026-06-25,Tunisia,Netherlands,Victoire extérieur,66%,14%,19%,66%,1679.3,1907.7
-D,2026-06-26,Türkiye,USA,Match nul,37%,36%,37%,28%,1828.3,1801.5
-D,2026-06-26,Paraguay,Australia,Match nul,41%,28%,41%,31%,1775.5,1803.5
-I,2026-06-26,Norway,France,Victoire extérieur,59%,17%,24%,59%,1789.7,1989.4
-I,2026-06-26,Senegal,Iraq,Victoire domicile,44%,44%,34%,22%,1835.3,1708.0
-H,2026-06-27,Cabo Verde,Saudi Arabia,Match nul,40%,31%,40%,30%,1611.0,1658.8
-H,2026-06-27,Uruguay,Spain,Victoire extérieur,63%,14%,23%,63%,1848.1,2039.8
-G,2026-06-27,Egypt,IR Iran,Match nul,50%,24%,50%,26%,1746.4,1813.4
-G,2026-06-27,New Zealand,Belgium,Victoire extérieur,62%,17%,21%,62%,1669.7,1849.8
-L,2026-06-27,Panama,England,Victoire extérieur,62%,16%,22%,62%,1743.2,1935.6
-L,2026-06-27,Croatia,Ghana,Victoire domicile,46%,46%,33%,21%,1861.8,1571.0
-K,2026-06-27,Colombia,Portugal,Victoire extérieur,48%,22%,30%,48%,1902.5,1903.5
-K,2026-06-27,Congo DR,Uzbekistan,Match nul,44%,28%,44%,27%,1678.2,1763.3
-J,2026-06-28,Algeria,Austria,Victoire extérieur,41%,24%,35%,41%,1778.5,1794.5
-J,2026-06-28,Jordan,Argentina,Victoire extérieur,63%,15%,22%,63%,1688.3,2026.7
+A,2026-06-11,Mexico,South Africa,Victoire domicile,62%,62%,27%,11%,1851.5,1634.6
+A,2026-06-12,Korea Republic,Czechia,Victoire domicile,65%,65%,22%,12%,1805.9,1708.8
+B,2026-06-12,Canada,Bosnia and Herzegovina,Victoire domicile,71%,71%,19%,10%,1784.5,1604.6
+D,2026-06-13,USA,Paraguay,Victoire extérieur,46%,21%,33%,46%,1801.5,1775.5
+B,2026-06-13,Qatar,Switzerland,Victoire extérieur,72%,10%,18%,72%,1634.2,1830.8
+C,2026-06-13,Brazil,Morocco,Match nul,38%,26%,38%,36%,1919.6,1889.8
+C,2026-06-14,Haiti,Scotland,Victoire extérieur,72%,10%,18%,72%,1595.0,1712.3
+D,2026-06-14,Australia,Türkiye,Victoire domicile,52%,52%,29%,19%,1803.5,1828.3
+E,2026-06-14,Germany,Curaçao,Victoire domicile,68%,68%,23%,10%,1907.0,1532.0
+F,2026-06-14,Netherlands,Japan,Victoire extérieur,53%,18%,29%,53%,1907.7,1881.2
+E,2026-06-14,Côte d'Ivoire,Ecuador,Victoire extérieur,56%,10%,34%,56%,1736.0,1866.3
+F,2026-06-15,Sweden,Tunisia,Victoire extérieur,42%,34%,24%,42%,1726.4,1679.3
+H,2026-06-15,Spain,Cabo Verde,Victoire domicile,90%,90%,8%,2%,2039.8,1611.0
+G,2026-06-15,Belgium,Egypt,Victoire domicile,38%,38%,30%,32%,1849.8,1746.4
+H,2026-06-15,Saudi Arabia,Uruguay,Victoire extérieur,57%,12%,32%,57%,1658.8,1848.1
+G,2026-06-16,IR Iran,New Zealand,Victoire domicile,70%,70%,22%,8%,1813.4,1669.7
+I,2026-06-16,France,Senegal,Victoire domicile,44%,44%,29%,27%,1989.4,1835.3
+I,2026-06-16,Iraq,Norway,Victoire extérieur,49%,23%,28%,49%,1708.0,1789.7
+J,2026-06-17,Argentina,Algeria,Victoire domicile,71%,71%,20%,9%,2026.7,1778.5
+J,2026-06-17,Austria,Jordan,Victoire extérieur,52%,21%,27%,52%,1794.5,1688.3
+K,2026-06-17,Portugal,Congo DR,Victoire domicile,51%,51%,30%,19%,1903.5,1678.2
+L,2026-06-17,England,Croatia,Victoire domicile,58%,58%,28%,14%,1935.6,1861.8
+L,2026-06-17,Ghana,Panama,Victoire extérieur,44%,28%,28%,44%,1571.0,1743.2
+K,2026-06-18,Uzbekistan,Colombia,Victoire extérieur,53%,17%,30%,53%,1763.3,1902.5
+A,2026-06-18,Czechia,South Africa,Victoire domicile,36%,36%,28%,36%,1708.8,1634.6
+B,2026-06-18,Switzerland,Bosnia and Herzegovina,Victoire domicile,76%,76%,16%,8%,1830.8,1604.6
+B,2026-06-18,Canada,Qatar,Victoire domicile,67%,67%,20%,13%,1784.5,1634.2
+A,2026-06-19,Mexico,Korea Republic,Match nul,38%,34%,38%,28%,1851.5,1805.9
+D,2026-06-19,USA,Australia,Victoire extérieur,50%,19%,32%,50%,1801.5,1803.5
+C,2026-06-19,Scotland,Morocco,Victoire extérieur,59%,12%,28%,59%,1712.3,1889.8
+C,2026-06-20,Brazil,Haiti,Victoire domicile,89%,89%,9%,3%,1919.6,1595.0
+D,2026-06-20,Türkiye,Paraguay,Victoire extérieur,48%,22%,30%,48%,1828.3,1775.5
+F,2026-06-20,Netherlands,Sweden,Victoire domicile,68%,68%,19%,14%,1907.7,1726.4
+E,2026-06-20,Germany,Côte d'Ivoire,Victoire domicile,61%,61%,23%,16%,1907.0,1736.0
+E,2026-06-21,Ecuador,Curaçao,Victoire domicile,58%,58%,35%,6%,1866.3,1532.0
+F,2026-06-21,Tunisia,Japan,Victoire extérieur,74%,7%,19%,74%,1679.3,1881.2
+H,2026-06-21,Spain,Saudi Arabia,Victoire domicile,70%,70%,21%,9%,2039.8,1658.8
+G,2026-06-21,Belgium,IR Iran,Victoire extérieur,42%,31%,27%,42%,1849.8,1813.4
+H,2026-06-21,Uruguay,Cabo Verde,Victoire domicile,78%,78%,17%,5%,1848.1,1611.0
+G,2026-06-22,New Zealand,Egypt,Victoire extérieur,60%,11%,30%,60%,1669.7,1746.4
+J,2026-06-22,Argentina,Austria,Victoire domicile,77%,77%,18%,6%,2026.7,1794.5
+I,2026-06-22,France,Iraq,Victoire domicile,52%,52%,31%,17%,1989.4,1708.0
+I,2026-06-23,Norway,Senegal,Victoire domicile,38%,38%,24%,37%,1789.7,1835.3
+J,2026-06-23,Jordan,Algeria,Victoire domicile,43%,43%,27%,30%,1688.3,1778.5
+K,2026-06-23,Portugal,Uzbekistan,Victoire domicile,45%,45%,33%,22%,1903.5,1763.3
+L,2026-06-23,England,Ghana,Victoire domicile,80%,80%,16%,5%,1935.6,1571.0
+L,2026-06-23,Panama,Croatia,Victoire extérieur,50%,22%,28%,50%,1743.2,1861.8
+K,2026-06-24,Colombia,Congo DR,Victoire domicile,60%,60%,26%,14%,1902.5,1678.2
+B,2026-06-24,Switzerland,Canada,Victoire domicile,41%,41%,27%,32%,1830.8,1784.5
+B,2026-06-24,Bosnia and Herzegovina,Qatar,Victoire extérieur,43%,30%,27%,43%,1604.6,1634.2
+C,2026-06-24,Scotland,Brazil,Victoire extérieur,57%,16%,28%,57%,1712.3,1919.6
+C,2026-06-24,Morocco,Haiti,Victoire domicile,89%,89%,9%,2%,1889.8,1595.0
+A,2026-06-25,Czechia,Mexico,Victoire extérieur,63%,11%,26%,63%,1708.8,1851.5
+A,2026-06-25,South Africa,Korea Republic,Victoire extérieur,64%,13%,23%,64%,1634.6,1805.9
+E,2026-06-25,Curaçao,Côte d'Ivoire,Victoire extérieur,45%,23%,32%,45%,1532.0,1736.0
+E,2026-06-25,Ecuador,Germany,Match nul,40%,40%,40%,20%,1866.3,1907.0
+F,2026-06-25,Japan,Sweden,Victoire domicile,81%,81%,14%,5%,1881.2,1726.4
+F,2026-06-25,Tunisia,Netherlands,Victoire extérieur,60%,17%,23%,60%,1679.3,1907.7
+D,2026-06-26,Türkiye,USA,Victoire domicile,36%,36%,28%,36%,1828.3,1801.5
+D,2026-06-26,Paraguay,Australia,Match nul,40%,28%,40%,32%,1775.5,1803.5
+I,2026-06-26,Norway,France,Victoire extérieur,47%,28%,25%,47%,1789.7,1989.4
+I,2026-06-26,Senegal,Iraq,Victoire domicile,45%,45%,32%,23%,1835.3,1708.0
+H,2026-06-27,Cabo Verde,Saudi Arabia,Victoire extérieur,53%,18%,29%,53%,1611.0,1658.8
+H,2026-06-27,Uruguay,Spain,Victoire extérieur,37%,30%,34%,37%,1848.1,2039.8
+G,2026-06-27,Egypt,IR Iran,Victoire extérieur,41%,26%,33%,41%,1746.4,1813.4
+G,2026-06-27,New Zealand,Belgium,Victoire extérieur,71%,9%,20%,71%,1669.7,1849.8
+L,2026-06-27,Panama,England,Victoire extérieur,76%,7%,17%,76%,1743.2,1935.6
+L,2026-06-27,Croatia,Ghana,Victoire domicile,57%,57%,27%,16%,1861.8,1571.0
+K,2026-06-27,Colombia,Portugal,Victoire domicile,46%,46%,26%,28%,1902.5,1903.5
+K,2026-06-27,Congo DR,Uzbekistan,Match nul,42%,26%,42%,33%,1678.2,1763.3
+J,2026-06-28,Algeria,Austria,Victoire domicile,47%,47%,27%,26%,1778.5,1794.5
+J,2026-06-28,Jordan,Argentina,Victoire extérieur,64%,12%,24%,64%,1688.3,2026.7
