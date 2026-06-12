@@ -1,11 +1,16 @@
 """
 services/wc_resolver.py — Résolution automatique des prédictions CdM 2026.
 
-Interroge football-data.org pour les matchs WC terminés, les mappe sur nos
-fixtures par noms d'équipes, et met à jour la DB via resolve_prediction().
+Source primaire : worldcup26.ir/get/games (gratuit, pas de clé API)
+Source fallback : football-data.org (clé API requise — peut retourner 403)
 
-Appelé toutes les heures par bot.py. Ne lève jamais d'exception — les erreurs
-sont loggées et la tâche se poursuit au prochain cycle.
+Format worldcup26.ir observé :
+  {"games": [{"id": "1", "finished": "TRUE", "home_score": "2", "away_score": "0",
+              "home_team_name_en": "Mexico", "away_team_name_en": "South Africa", ...}]}
+  Attention : finished est une string "TRUE"/"FALSE", pas un booléen.
+  Les matchs non joués ont home_score/away_score = "0" — filtrer sur finished == "TRUE".
+
+Appelé toutes les heures par bot.py. Ne lève jamais d'exception.
 """
 from __future__ import annotations
 
@@ -17,13 +22,14 @@ import requests
 
 import database
 
-BASE_URL        = "https://api.football-data.org/v4"
+FDORG_URL       = "https://api.football-data.org/v4"
+WC26_URL        = "https://worldcup26.ir/get/games"
 FIXTURES_PATH   = Path(__file__).parent.parent / "ml" / "data" / "wc2026_fixtures.csv"
 MATCH_ID_OFFSET = 200_000
 
-# football-data.org utilise souvent les noms anglais courants, pas les noms FIFA officiels.
-# Format : {nom_football_data_org: nom_dans_wc2026_fixtures.csv}
-_FDORG_TO_FIXTURE: dict[str, str] = {
+# Noms d'équipes renvoyés par les APIs (fdorg et worldcup26.ir utilisent les mêmes conventions)
+# vers les noms utilisés dans wc2026_fixtures.csv.
+_API_TO_FIXTURE: dict[str, str] = {
     "United States":      "USA",
     "South Korea":        "Korea Republic",
     "Iran":               "IR Iran",
@@ -37,16 +43,11 @@ _FDORG_TO_FIXTURE: dict[str, str] = {
 }
 
 
-def _resolve_name(fdorg_name: str) -> str:
-    """Traduit un nom football-data.org vers le nom utilisé dans wc2026_fixtures.csv."""
-    return _FDORG_TO_FIXTURE.get(fdorg_name, fdorg_name)
+def _resolve_name(name: str) -> str:
+    return _API_TO_FIXTURE.get(name, name)
 
 
 def _build_fixture_lookup() -> dict[tuple[str, str], dict]:
-    """
-    Construit un dict (home_team, away_team) → {match_id, match_date, group}
-    depuis wc2026_fixtures.csv. Seuls les matchs du groupe stage ont des équipes connues.
-    """
     df = pd.read_csv(FIXTURES_PATH)
     group_stage = df[df["stage"] == "Group Stage"]
     return {
@@ -59,35 +60,107 @@ def _build_fixture_lookup() -> dict[tuple[str, str], dict]:
     }
 
 
-def _fetch_wc_matches() -> list[dict]:
-    """Récupère tous les matchs WC2026 depuis football-data.org. Retourne [] en cas d'erreur."""
+# ---------------------------------------------------------------------------
+# Sources de données — retournent toutes deux le même format normalisé
+# {"home": str, "away": str, "home_score": int, "away_score": int}
+# ou None en cas d'échec réseau/parsing.
+# ---------------------------------------------------------------------------
+
+def _fetch_worldcup26ir() -> list[dict] | None:
+    """Source primaire : worldcup26.ir — gratuit, pas de clé."""
+    try:
+        resp = requests.get(WC26_URL, timeout=10)
+        resp.raise_for_status()
+        games = resp.json().get("games", [])
+    except requests.RequestException as e:
+        print(f"[WC RESOLVER] worldcup26.ir indisponible : {e}")
+        return None
+
+    result = []
+    for g in games:
+        # finished est une string "TRUE"/"FALSE" — ne pas se fier aux scores qui valent "0" par défaut
+        if g.get("finished") != "TRUE":
+            continue
+        try:
+            result.append({
+                "home":       g["home_team_name_en"],
+                "away":       g["away_team_name_en"],
+                "home_score": int(g["home_score"]),
+                "away_score": int(g["away_score"]),
+            })
+        except (KeyError, ValueError):
+            continue
+    return result
+
+
+def _fetch_fdorg() -> list[dict] | None:
+    """Source fallback : football-data.org — clé API requise."""
     key = os.getenv("FOOTBALL_DATA_KEY")
     if not key:
-        print("[WC RESOLVER] FOOTBALL_DATA_KEY manquant — résolution impossible.")
-        return []
+        print("[WC RESOLVER] FOOTBALL_DATA_KEY manquant — fallback football-data.org impossible.")
+        return None
 
     try:
         resp = requests.get(
-            f"{BASE_URL}/competitions/WC/matches",
+            f"{FDORG_URL}/competitions/WC/matches",
             headers={"X-Auth-Token": key},
             params={"season": "2026"},
             timeout=10,
         )
         resp.raise_for_status()
-        return resp.json().get("matches", [])
     except requests.HTTPError as e:
-        print(f"[WC RESOLVER] Erreur HTTP {e.response.status_code} : {e}")
-        return []
+        print(f"[WC RESOLVER] football-data.org HTTP {e.response.status_code} : {e}")
+        return None
     except requests.RequestException as e:
-        print(f"[WC RESOLVER] Erreur réseau : {e}")
-        return []
+        print(f"[WC RESOLVER] football-data.org réseau : {e}")
+        return None
 
+    result = []
+    for m in resp.json().get("matches", []):
+        if m.get("status") != "FINISHED":
+            continue
+        score = m.get("score", {}).get("fullTime", {})
+        h, a  = score.get("home"), score.get("away")
+        if h is None or a is None:
+            continue
+        result.append({
+            "home":       m.get("homeTeam", {}).get("name", ""),
+            "away":       m.get("awayTeam", {}).get("name", ""),
+            "home_score": int(h),
+            "away_score": int(a),
+        })
+    return result
+
+
+def _fetch_finished_matches() -> tuple[list[dict], str]:
+    """
+    Tente worldcup26.ir en premier, football-data.org en fallback.
+    Retourne (liste normalisée des matchs terminés, nom de la source utilisée).
+    """
+    matches = _fetch_worldcup26ir()
+    if matches is not None:
+        print(f"[WC RESOLVER] Source : worldcup26.ir — {len(matches)} match(s) terminé(s)")
+        return matches, "worldcup26.ir"
+
+    print("[WC RESOLVER] Fallback sur football-data.org…")
+    matches = _fetch_fdorg()
+    if matches is not None:
+        print(f"[WC RESOLVER] Source : football-data.org — {len(matches)} match(s) terminé(s)")
+        return matches, "football-data.org"
+
+    print("[WC RESOLVER] Les deux sources sont indisponibles.")
+    return [], "none"
+
+
+# ---------------------------------------------------------------------------
+# Résolution principale
+# ---------------------------------------------------------------------------
 
 def resolve_wc_predictions() -> None:
     """
     Point d'entrée principal — appelé hourly par bot.py.
 
-    Pour chaque match WC terminé dans l'API :
+    Pour chaque match WC terminé :
     1. Traduit les noms d'équipes vers nos noms de fixtures
     2. Retrouve le match_id dans notre table de fixtures
     3. Si une prédiction DB est en attente, la résout
@@ -100,48 +173,42 @@ def resolve_wc_predictions() -> None:
         print("[WC RESOLVER] Aucune prédiction en attente.")
         return
 
-    fixture_lookup = _build_fixture_lookup()
-    matches        = _fetch_wc_matches()
+    fixture_lookup          = _build_fixture_lookup()
+    finished_raw, source    = _fetch_finished_matches()
 
-    # Trier par date pour que les mises à jour ELO soient chronologiquement correctes
-    finished = sorted(
-        [m for m in matches if m.get("status") == "FINISHED"],
-        key=lambda m: m.get("utcDate", ""),
-    )
-
-    print(f"[WC RESOLVER] {len(pending)} en attente | {len(finished)} matchs terminés dans l'API")
-
-    resolved = 0
-    for match in finished:
-        home_fdorg = match.get("homeTeam", {}).get("name", "")
-        away_fdorg = match.get("awayTeam", {}).get("name", "")
-
-        home_fixture = _resolve_name(home_fdorg)
-        away_fixture = _resolve_name(away_fdorg)
-
+    # Résoudre les noms et filtrer les matchs trouvés dans notre lookup
+    to_process = []
+    for match in finished_raw:
+        home_fixture = _resolve_name(match["home"])
+        away_fixture = _resolve_name(match["away"])
         fixture_info = fixture_lookup.get((home_fixture, away_fixture))
 
         if fixture_info is None:
-            if home_fdorg and away_fdorg:
+            if match["home"] and match["away"]:
                 print(
-                    f"[WC RESOLVER] Mapping manquant : "
-                    f"'{home_fdorg}' → '{home_fixture}' | "
-                    f"'{away_fdorg}' → '{away_fixture}' "
-                    f"— ajouter à _FDORG_TO_FIXTURE si nécessaire"
+                    f"[WC RESOLVER] Mapping manquant ({source}) : "
+                    f"'{match['home']}' → '{home_fixture}' | "
+                    f"'{match['away']}' → '{away_fixture}' "
+                    f"— ajouter à _API_TO_FIXTURE si nécessaire"
                 )
             continue
 
-        match_id   = fixture_info["match_id"]
-        match_date = fixture_info["match_date"]
+        to_process.append((fixture_info, home_fixture, away_fixture, match))
+
+    # Traiter dans l'ordre chronologique pour que les mises à jour ELO soient correctes
+    to_process.sort(key=lambda x: x[0]["match_id"])
+
+    print(f"[WC RESOLVER] {len(pending)} en attente | {len(to_process)} matchs à traiter ({source})")
+
+    resolved   = 0
+    wc_elo_path = Path(__file__).parent.parent / "ml" / "data" / "wc_elo_updates.csv"
+
+    for fixture_info, home_fixture, away_fixture, match in to_process:
+        match_id    = fixture_info["match_id"]
+        match_date  = fixture_info["match_date"]
         match_group = fixture_info["group"]
-
-        score    = match.get("score", {}).get("fullTime", {})
-        actual_h = score.get("home")
-        actual_a = score.get("away")
-
-        if actual_h is None or actual_a is None:
-            print(f"[WC RESOLVER] Score fullTime manquant pour {home_fixture} vs {away_fixture}")
-            continue
+        actual_h    = match["home_score"]
+        actual_a    = match["away_score"]
 
         # Enregistrer le score réel pour /standings (indépendant des prédictions)
         database.save_match_result(
@@ -159,9 +226,8 @@ def resolve_wc_predictions() -> None:
             )
             resolved += 1
 
-        # Mettre à jour l'ELO dans tous les cas (même si la prédiction était déjà résolue)
-        # pour que wc_elo_updates.csv reste complet en cas de redémarrage du bot
-        wc_elo_path = Path(__file__).parent.parent / "ml" / "data" / "wc_elo_updates.csv"
+        # Mettre à jour l'ELO dans tous les cas pour que wc_elo_updates.csv reste complet
+        # après un redémarrage du bot (auto_resolve retraite tous les matchs terminés)
         already_updated = False
         if wc_elo_path.exists() and wc_elo_path.stat().st_size > 0:
             existing = pd.read_csv(wc_elo_path)
