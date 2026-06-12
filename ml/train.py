@@ -20,7 +20,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics import accuracy_score, confusion_matrix, log_loss
 from sklearn.utils.class_weight import compute_sample_weight
 from xgboost import XGBClassifier
@@ -119,7 +118,7 @@ def evaluate(
 # Pipeline principal
 # ---------------------------------------------------------------------------
 
-def train(features_path: str | Path | None = None) -> CalibratedClassifierCV:
+def train(features_path: str | Path | None = None) -> XGBClassifier:
     """
     Entraîne XGBoost avec class weights + calibration isotonique.
     Retourne le modèle calibré prêt pour l'inférence.
@@ -208,21 +207,6 @@ def train(features_path: str | Path | None = None) -> CalibratedClassifierCV:
     xgb_val   = evaluate("XGBoost non calibré — val",  y_val,  xgb.predict(X_val),  xgb_val_proba)
     xgb_test  = evaluate("XGBoost non calibré — test", y_test, xgb.predict(X_test), xgb_test_proba)
 
-    # --- Calibration isotonique ---
-    # cv='prefit' : le modèle XGBoost est déjà entraîné, on calibre seulement
-    # les probabilités en sortie. On utilise le val set comme données de calibration.
-    # Note : le val set a aussi servi pour l'early stopping — compromis acceptable
-    # sur un projet de cette taille. Pour être strict, il faudrait un 4e split dédié.
-    calibrated = CalibratedClassifierCV(xgb, cv="prefit", method="isotonic")
-    calibrated.fit(X_val, y_val)
-
-    # --- Évaluation modèle calibré ---
-    print("\n=== XGBOOST CALIBRÉ (isotonic regression) ===")
-    cal_val_proba  = calibrated.predict_proba(X_val)
-    cal_test_proba = calibrated.predict_proba(X_test)
-    cal_val  = evaluate("XGBoost calibré — val",  y_val,  calibrated.predict(X_val),  cal_val_proba)
-    cal_test = evaluate("XGBoost calibré — test", y_test, calibrated.predict(X_test), cal_test_proba)
-
     # --- Optimisation du seuil nul (val set) ---
     # On cherche le seuil P(draw) qui maximise un score combiné :
     # score = 0.6 * accuracy + 0.4 * recall_nuls
@@ -237,7 +221,7 @@ def train(features_path: str | Path | None = None) -> CalibratedClassifierCV:
 
     for t in np.arange(0.20, 0.36, 0.01):
         t = round(float(t), 2)
-        preds = predict_with_threshold(cal_val_proba, t)
+        preds = predict_with_threshold(xgb_val_proba, t)
         acc   = accuracy_score(y_val, preds)
         cm_t  = confusion_matrix(y_val, preds, labels=[0, 1, 2])
         n_true_draw  = int(cm_t[1, :].sum())
@@ -254,12 +238,12 @@ def train(features_path: str | Path | None = None) -> CalibratedClassifierCV:
 
     print(f"\n  Seuil optimal : {best_threshold:.2f}  (score combiné = {best_score:.4f})")
 
-    # Évaluation du modèle calibré + seuil optimal sur le test set
-    print("\n=== CALIBRÉ + SEUIL OPTIMAL (test) ===")
-    preds_thr_test = predict_with_threshold(cal_test_proba, best_threshold)
+    # Évaluation XGBoost + seuil optimal sur le test set
+    print("\n=== XGBOOST + SEUIL OPTIMAL (test) ===")
+    preds_thr_test = predict_with_threshold(xgb_test_proba, best_threshold)
     thr_test = evaluate(
-        f"Calibré + seuil {best_threshold:.2f} — test",
-        y_test, preds_thr_test, cal_test_proba,
+        f"XGBoost + seuil {best_threshold:.2f} — test",
+        y_test, preds_thr_test, xgb_test_proba,
     )
 
     # --- Résumé comparatif ---
@@ -269,10 +253,9 @@ def train(features_path: str | Path | None = None) -> CalibratedClassifierCV:
     print(f"  {'Modèle':<36} {'Acc':>6}  {'Log-loss':>8}  {'Recall nuls':>11}")
     print(f"  {'─'*50}")
     rows = [
-        ("Baseline ELO",                  baseline_test["accuracy"], None,                 baseline_test["draw_recall"]),
-        ("XGBoost non calibré",           xgb_test["accuracy"],      xgb_test["log_loss"], xgb_test["draw_recall"]),
-        ("XGBoost calibré",               cal_test["accuracy"],       cal_test["log_loss"], cal_test["draw_recall"]),
-        (f"Calibré + seuil {best_threshold:.2f}", thr_test["accuracy"], thr_test["log_loss"], thr_test["draw_recall"]),
+        ("Baseline ELO",                        baseline_test["accuracy"], None,                 baseline_test["draw_recall"]),
+        ("XGBoost",                             xgb_test["accuracy"],      xgb_test["log_loss"], xgb_test["draw_recall"]),
+        (f"XGBoost + seuil {best_threshold:.2f}", thr_test["accuracy"],    thr_test["log_loss"], thr_test["draw_recall"]),
     ]
     for label, acc, ll, dr in rows:
         ll_str = f"{ll:.4f}" if ll is not None else "    —   "
@@ -296,8 +279,6 @@ def train(features_path: str | Path | None = None) -> CalibratedClassifierCV:
         "baseline_test":  baseline_test,
         "xgb_val":        xgb_val,
         "xgb_test":       xgb_test,
-        "cal_val":        cal_val,
-        "cal_test":       cal_test,
         "thr_test":       thr_test,
         "best_iteration": int(xgb.best_iteration),
         "features":       FEATURE_COLS,
@@ -332,7 +313,7 @@ def train(features_path: str | Path | None = None) -> CalibratedClassifierCV:
     print(f"Config sauvegardée      → {MODEL_CONFIG_PATH}")
     print(f"\nModele final : XGBoost brut (class weights, draw_threshold=null)")
 
-    return calibrated
+    return xgb
 
 
 if __name__ == "__main__":
