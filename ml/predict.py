@@ -20,7 +20,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from ml.features import DATA_DIR, ELO_INIT, FEATURE_COLS, FORM_WINDOW, H2H_WINDOW
+from ml.features import DATA_DIR, ELO_INIT, FEATURE_COLS, FORM_WINDOW, H2H_WINDOW, WC_HOSTS
 from ml.train import MODEL_PATH
 
 LABEL_MAP = {2: "home", 1: "draw", 0: "away"}
@@ -156,6 +156,8 @@ def build_match_features(
     af       = _form(away_team, date, results)
     h        = _h2h(home_team, away_team, date, results)
 
+    hosts = WC_HOSTS.get(date.year, set()) if tournament_tier == 4 else set()
+
     row = {
         "elo_home":       elo_home,
         "elo_away":       elo_away,
@@ -173,6 +175,8 @@ def build_match_features(
         "h2h_n":          h["h2h_n"],
         "is_neutral":     int(is_neutral),
         "tournament_tier": tournament_tier,
+        "home_is_host":   int(home_team in hosts),
+        "away_is_host":   int(away_team in hosts),
     }
 
     return pd.DataFrame([row])[FEATURE_COLS]

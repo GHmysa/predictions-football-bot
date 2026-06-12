@@ -7,6 +7,7 @@ Colonnes : elo_home, elo_away, elo_diff,
            home/away_form_pts/gf/ga/n,
            h2h_home_pts/gd/n,
            is_neutral, tournament_tier,
+           home_is_host, away_is_host
            result (target: 0=away, 1=draw, 2=home)
 
 Exécution : python -m ml.features   (depuis predictions-football-bot/)
@@ -28,6 +29,7 @@ FEATURE_COLS = [
     "away_form_pts", "away_form_gf", "away_form_ga", "away_form_n",
     "h2h_home_pts", "h2h_gd", "h2h_n",
     "is_neutral", "tournament_tier",
+    "home_is_host", "away_is_host",
 ]
 
 _TIER_MAP: dict[int, list[str]] = {
@@ -41,6 +43,34 @@ _TIER_MAP: dict[int, list[str]] = {
     ],
 }
 _QUAL_KEYWORDS = ("qualification", "qualifier", "Qualification", "Qualifier")
+
+# Noms d'équipes hôtes tels qu'ils apparaissent dans results.csv, par édition CdM.
+# Source unique et auditables — pas de jointure externe.
+WC_HOSTS: dict[int, set[str]] = {
+    1930: {"Uruguay"},
+    1934: {"Italy"},
+    1938: {"France"},
+    1950: {"Brazil"},
+    1954: {"Switzerland"},
+    1958: {"Sweden"},
+    1962: {"Chile"},
+    1966: {"England"},
+    1970: {"Mexico"},
+    1974: {"West Germany"},
+    1978: {"Argentina"},
+    1982: {"Spain"},
+    1986: {"Mexico"},
+    1990: {"Italy"},
+    1994: {"United States"},
+    1998: {"France"},
+    2002: {"South Korea", "Japan"},
+    2006: {"Germany"},
+    2010: {"South Africa"},
+    2014: {"Brazil"},
+    2018: {"Russia"},
+    2022: {"Qatar"},
+    2026: {"United States", "Canada", "Mexico"},
+}
 
 
 def get_tournament_tier(tournament: str) -> int:
@@ -198,6 +228,30 @@ def _h2h_features(df: pd.DataFrame, n: int = H2H_WINDOW) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _host_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    home_is_host : 1 si le home_team est la nation hôte de cette CdM, 0 sinon.
+    away_is_host : 1 si le away_team est la nation hôte de cette CdM, 0 sinon.
+
+    Implémentation : lookup dict (year, team) → 1, vectorisé sur tout le DataFrame.
+    Aucun fichier externe — auditez WC_HOSTS directement dans ce module.
+    """
+    # Précalcule un dict plat (year, team) → 1 pour éviter les appels de set par ligne
+    host_lookup: dict[tuple[int, str], int] = {}
+    for yr, teams in WC_HOSTS.items():
+        for t in teams:
+            host_lookup[(yr, t)] = 1
+
+    year = df["date"].dt.year
+    home_is_host = [host_lookup.get((y, h), 0) for y, h in zip(year, df["home_team"])]
+    away_is_host = [host_lookup.get((y, a), 0) for y, a in zip(year, df["away_team"])]
+
+    return pd.DataFrame({
+        "home_is_host": np.array(home_is_host, dtype=np.int8),
+        "away_is_host": np.array(away_is_host, dtype=np.int8),
+    })
+
+
 def build_features(
     results_path: str | Path | None = None,
     elo_history_path: str | Path | None = None,
@@ -218,7 +272,6 @@ def build_features(
     elo_history_path = Path(elo_history_path or DATA_DIR / "elo_history.csv")
 
     df = pd.read_csv(results_path, parse_dates=["date"])
-    # Exclure les matchs sans score (ex. matchs futurs pré-remplis dans le dataset)
     df = df.dropna(subset=["home_score", "away_score"]).sort_values("date").reset_index(drop=True)
     elo = pd.read_csv(elo_history_path, parse_dates=["date"])
 
@@ -234,7 +287,11 @@ def build_features(
     h2h_df = _h2h_features(df)
     print("H2H features done")
 
-    df = pd.concat([df.reset_index(drop=True), form_df, h2h_df], axis=1)
+    host_df = _host_features(df)
+    n_host = host_df["home_is_host"].sum() + host_df["away_is_host"].sum()
+    print(f"Host features done — {n_host} matchs avec un hôte identifié")
+
+    df = pd.concat([df.reset_index(drop=True), form_df, h2h_df, host_df], axis=1)
 
     df["is_neutral"]      = (df["neutral"].astype(str).str.upper() == "TRUE").astype(int)
     df["tournament_tier"] = df["tournament"].map(get_tournament_tier)
@@ -251,6 +308,7 @@ def build_features(
         "away_form_pts", "away_form_gf", "away_form_ga", "away_form_n",
         "h2h_home_pts", "h2h_gd", "h2h_n",
         "is_neutral", "tournament_tier",
+        "home_is_host", "away_is_host",
         "result",
     ]
     return df[feature_cols]

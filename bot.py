@@ -6,14 +6,12 @@ load_dotenv()
 
 import discord
 from discord import app_commands
-from discord.ext import tasks
 
 from commands.prono import setup as setup_prono, _fixtures, MATCH_ID_OFFSET, WC_COMPETITION
 from commands.accuracy import setup as setup_accuracy
 from commands.standings import setup as setup_standings
 from commands.simulate import setup as setup_simulate
 from commands.admin import setup as setup_admin
-from services.wc_resolver import resolve_wc_predictions
 from ml.predict import predict_match
 import database
 
@@ -57,14 +55,6 @@ async def _prefill_predictions() -> None:
     print(f"[PREFILL] {count} prédictions pré-remplies en DB")
 
 
-@tasks.loop(hours=1)
-async def auto_resolve():
-    """Résout automatiquement les prédictions WC dont les matchs sont terminés."""
-    print("[AUTO-RESOLVE] Lancement du cycle de résolution…")
-    # resolve_wc_predictions() utilise requests (sync) — délégué à un thread
-    await asyncio.to_thread(resolve_wc_predictions)
-
-
 @client.event
 async def on_ready():
     if GUILD_ID:
@@ -80,7 +70,6 @@ async def on_ready():
         synced = await tree.sync()
         print(f"[SYNC] {len(synced)} commandes synced globalement")
 
-    auto_resolve.start()
     await _prefill_predictions()
     print(f"Connecté en tant que {client.user}")
 
