@@ -50,6 +50,10 @@ Quand un utilisateur fait `/prono groupe:C` :
 
 Première prédiction : ~1-2s (chargement fichiers + Poisson params). Suivantes : quasi-instantanées (cache).
 
+### Mise à jour des scores (manuelle)
+
+Il n'y a **pas de résolution automatique**. Les scores sont saisis manuellement via `/score` (admin). `wc_resolver.py` a été supprimé — il n'y a aucune tâche périodique dans le bot.
+
 ---
 
 ## 1. Commandes Discord (4 commandes actives)
@@ -250,7 +254,7 @@ WC      : Train WC 2002-2014 | Val WC 2018   | Test WC 2022
 - `/standings` : opérationnel (scores réels depuis le 11/06)
 - `/accuracy` : représentatif dès le 1er match — 72 prédictions pré-remplies en DB
 - `/simulate` : Monte Carlo 10 000 simulations
-- `auto_resolve` : résolution prédictions + scores + ELO, toutes les heures
+- `/score` (admin) : saisie manuelle des scores → DB + ELO mis à jour
 - `PERSISTENT_DIR` : `football.db` et `wc_elo_updates.csv` persistants sur volume Railway
 
 ### ⚠️ Risques résiduels
@@ -264,37 +268,23 @@ WC      : Train WC 2002-2014 | Val WC 2018   | Test WC 2022
 
 ---
 
-## 5. Flux automatisé après chaque match (depuis le 11/06)
+## 5. Flux après chaque match (saisie manuelle)
 
-**Rien à faire manuellement.** Voici le flux complet :
+Après chaque match, utiliser la commande Discord `/score` (réservée admin) :
 
 ```
-Match terminé (football-data.org : status = FINISHED)
-  ↓  dans l'heure suivante
-auto_resolve (bot.py — @tasks.loop hours=1)
-  → asyncio.to_thread(resolve_wc_predictions)
-      → GET /competitions/WC/matches (football-data.org)
-      → tri chronologique des matchs terminés
-      → pour chaque match :
-          → _resolve_name() : mappe nom fdorg → nom fixture
-          → database.save_match_result()       → /standings à jour
-          → database.resolve_prediction()      → /accuracy compte le match
-          → already_updated check              → pas de doublon ELO
-          → update_elo_with_match()            → wc_elo_updates.csv +2 lignes
-              → _data.cache_clear()            → prochain /prono = ELO frais
+/score match_number:<N> home_score:<X> away_score:<Y>
+  → database.save_match_result()   → /standings à jour
+  → database.resolve_prediction()  → /accuracy compte le match
+  → already_updated check          → pas de doublon ELO
+  → update_elo_with_match()        → PERSISTENT_DIR/wc_elo_updates.csv +2 lignes
+      → _data.cache_clear()        → prochain /prono = ELO frais
 ```
 
-**Logs Railway à surveiller après chaque journée :**
-```
-[AUTO-RESOLVE] Lancement du cycle de résolution…
-[WC RESOLVER] 5 en attente | 3 matchs terminés dans l'API
-[WC RESOLVER] Résolu : France 2-1 Belgique (H)
-[ELO UPDATE] France (France) : 1989.4 → 1997.2 | Belgique (Belgium) : 1876.3 → 1868.5
-[WC RESOLVER] 3 prediction(s) resolue(s) ce cycle.
-```
+Le numéro de match correspond à la colonne `match_number` dans `wc2026_fixtures.csv`.
 
-**Si tu vois `Mapping manquant` dans les logs :**
-Ajouter l'entrée dans `_FDORG_TO_FIXTURE` dans `services/wc_resolver.py` (lignes 26-37) et redéployer.
+**Pour voir le contenu de `wc_elo_updates.csv` en prod :**
+Railway → Service → Shell → `cat /data/wc_elo_updates.csv`
 
 ---
 
