@@ -95,7 +95,7 @@ def _form(team: str, date: pd.Timestamp, results: pd.DataFrame, n: int = FORM_WI
     m    = len(past)
 
     if m == 0:
-        return {"form_pts": 0.0, "form_gf": 0.0, "form_ga": 0.0, "form_n": 0}
+        return {"form_pts": 0.0, "form_gf": 0.0, "form_ga": 0.0}
 
     is_home = (past["home_team"] == team).values
     gf = np.where(is_home, past["home_score"].values, past["away_score"].values).astype(float)
@@ -106,8 +106,40 @@ def _form(team: str, date: pd.Timestamp, results: pd.DataFrame, n: int = FORM_WI
         "form_pts": float(pts.sum()) / (3 * m),
         "form_gf":  float(gf.mean()),
         "form_ga":  float(ga.mean()),
-        "form_n":   m,
     }
+
+
+def _wc_form(team: str, date: pd.Timestamp, results: pd.DataFrame, n: int = FORM_WINDOW) -> float:
+    """Win rate dans les n derniers matchs de tournoi majeur (tier >= 3) avant `date`."""
+    from ml.features import get_tournament_tier
+    mask = (
+        ((results["home_team"] == team) | (results["away_team"] == team)) &
+        (results["date"] < date) &
+        (results["tournament"].map(get_tournament_tier) >= 3)
+    )
+    past = results[mask].tail(n)
+    m    = len(past)
+
+    if m == 0:
+        return 0.0
+
+    is_home = (past["home_team"] == team).values
+    gf = np.where(is_home, past["home_score"].values, past["away_score"].values).astype(float)
+    ga = np.where(is_home, past["away_score"].values, past["home_score"].values).astype(float)
+    pts = np.where(gf > ga, 3, np.where(gf == ga, 1, 0))
+    return float(pts.sum()) / (3 * m)
+
+
+def _rest_days(team: str, date: pd.Timestamp, results: pd.DataFrame, cap: int = 30) -> int:
+    """Jours depuis le dernier match de l'équipe, plafonné à cap."""
+    mask = (
+        ((results["home_team"] == team) | (results["away_team"] == team)) &
+        (results["date"] < date)
+    )
+    past = results[mask]
+    if past.empty:
+        return cap
+    return min(int((date - past.iloc[-1]["date"]).days), cap)
 
 
 def _h2h(home: str, away: str, date: pd.Timestamp, results: pd.DataFrame, n: int = H2H_WINDOW) -> dict:
@@ -155,28 +187,29 @@ def build_match_features(
     hf       = _form(home_team, date, results)
     af       = _form(away_team, date, results)
     h        = _h2h(home_team, away_team, date, results)
-
-    hosts = WC_HOSTS.get(date.year, set()) if tournament_tier == 4 else set()
+    hosts    = WC_HOSTS.get(date.year, set()) if tournament_tier == 4 else set()
 
     row = {
-        "elo_home":       elo_home,
-        "elo_away":       elo_away,
-        "elo_diff":       elo_home - elo_away,
-        "home_form_pts":  hf["form_pts"],
-        "home_form_gf":   hf["form_gf"],
-        "home_form_ga":   hf["form_ga"],
-        "home_form_n":    hf["form_n"],
-        "away_form_pts":  af["form_pts"],
-        "away_form_gf":   af["form_gf"],
-        "away_form_ga":   af["form_ga"],
-        "away_form_n":    af["form_n"],
-        "h2h_home_pts":   h["h2h_home_pts"],
-        "h2h_gd":         h["h2h_gd"],
-        "h2h_n":          h["h2h_n"],
-        "is_neutral":     int(is_neutral),
-        "tournament_tier": tournament_tier,
-        "home_is_host":   int(home_team in hosts),
-        "away_is_host":   int(away_team in hosts),
+        "elo_home":          elo_home,
+        "elo_away":          elo_away,
+        "elo_diff":          elo_home - elo_away,
+        "home_form_pts":     hf["form_pts"],
+        "home_form_gf":      hf["form_gf"],
+        "home_form_ga":      hf["form_ga"],
+        "away_form_pts":     af["form_pts"],
+        "away_form_gf":      af["form_gf"],
+        "away_form_ga":      af["form_ga"],
+        "h2h_home_pts":      h["h2h_home_pts"],
+        "h2h_gd":            h["h2h_gd"],
+        "h2h_n":             h["h2h_n"],
+        "is_neutral":        int(is_neutral),
+        "tournament_tier":   tournament_tier,
+        "home_is_host":      int(home_team in hosts),
+        "away_is_host":      int(away_team in hosts),
+        "home_wc_form_pts":  _wc_form(home_team, date, results),
+        "away_wc_form_pts":  _wc_form(away_team, date, results),
+        "home_rest_days":    _rest_days(home_team, date, results),
+        "away_rest_days":    _rest_days(away_team, date, results),
     }
 
     return pd.DataFrame([row])[FEATURE_COLS]

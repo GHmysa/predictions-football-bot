@@ -3,12 +3,16 @@ ml/features.py — Feature engineering pipeline.
 
 Entrées  : ml/data/results.csv, ml/data/elo_history.csv
 Sortie   : DataFrame (+ ml/data/features.csv si __main__)
-Colonnes : elo_home, elo_away, elo_diff,
-           home/away_form_pts/gf/ga/n,
-           h2h_home_pts/gd/n,
-           is_neutral, tournament_tier,
-           home_is_host, away_is_host
-           result (target: 0=away, 1=draw, 2=home)
+
+Features (20) :
+  elo_home, elo_away, elo_diff
+  home/away_form_pts, home/away_form_gf, home/away_form_ga   (× 2 équipes, sans _n)
+  h2h_home_pts, h2h_gd, h2h_n
+  is_neutral, tournament_tier
+  home_is_host, away_is_host
+  home/away_wc_form_pts                                       (forme en tournois majeurs)
+  home/away_rest_days                                         (jours depuis dernier match)
+  result  (target: 0=away, 1=draw, 2=home)
 
 Exécution : python -m ml.features   (depuis predictions-football-bot/)
 """
@@ -22,14 +26,17 @@ DATA_DIR    = Path(__file__).parent / "data"
 FORM_WINDOW = 5
 H2H_WINDOW  = 5
 ELO_INIT    = 1500.0
+REST_CAP    = 30   # jours max pour rest_days (au-delà : même signal "bien reposé")
 
 FEATURE_COLS = [
     "elo_home", "elo_away", "elo_diff",
-    "home_form_pts", "home_form_gf", "home_form_ga", "home_form_n",
-    "away_form_pts", "away_form_gf", "away_form_ga", "away_form_n",
+    "home_form_pts", "home_form_gf", "home_form_ga",
+    "away_form_pts", "away_form_gf", "away_form_ga",
     "h2h_home_pts", "h2h_gd", "h2h_n",
     "is_neutral", "tournament_tier",
     "home_is_host", "away_is_host",
+    "home_wc_form_pts", "away_wc_form_pts",
+    "home_rest_days", "away_rest_days",
 ]
 
 _TIER_MAP: dict[int, list[str]] = {
@@ -45,7 +52,6 @@ _TIER_MAP: dict[int, list[str]] = {
 _QUAL_KEYWORDS = ("qualification", "qualifier", "Qualification", "Qualifier")
 
 # Noms d'équipes hôtes tels qu'ils apparaissent dans results.csv, par édition CdM.
-# Source unique et auditables — pas de jointure externe.
 WC_HOSTS: dict[int, set[str]] = {
     1930: {"Uruguay"},
     1934: {"Italy"},
@@ -94,7 +100,6 @@ def _elo_before_match(df: pd.DataFrame, elo_history: pd.DataFrame) -> pd.DataFra
     elo = elo_history.sort_values(["team", "date"]).copy()
     elo["elo_pre"] = elo.groupby("team")["elo"].shift(1).fillna(ELO_INIT)
 
-    # If a team plays twice on the same date, keep the first entry (= pre-day ELO)
     elo_pre = (
         elo.groupby(["team", "date"], as_index=False)
         .first()[["team", "date", "elo_pre"]]
@@ -115,10 +120,10 @@ def _elo_before_match(df: pd.DataFrame, elo_history: pd.DataFrame) -> pd.DataFra
 
 def _form_features(df: pd.DataFrame, n: int = FORM_WINDOW) -> pd.DataFrame:
     """
-    Vectorized form features: stats over the last n matches *before* each match.
+    Form over last n matches before each match: pts (normalized), gf, ga.
+    form_n supprimé de FEATURE_COLS — gardé temporairement pour compatibilité interne.
 
-    Trick: shift(1) within each team group excludes the current match from
-    the rolling window, so the window is strictly in the past.
+    Trick anti-leakage : shift(1) exclut le match courant du rolling window.
     """
     home = df[["date", "home_team", "home_score", "away_score"]].rename(
         columns={"home_team": "team", "home_score": "gf", "away_score": "ga"}
@@ -142,16 +147,14 @@ def _form_features(df: pd.DataFrame, n: int = FORM_WINDOW) -> pd.DataFrame:
     combined["form_n"]       = grp["pts"].transform(lambda s: _roll(s).count().fillna(0)).astype(int)
     combined["form_gf"]      = grp["gf"].transform(lambda s: _roll(s).mean().fillna(0))
     combined["form_ga"]      = grp["ga"].transform(lambda s: _roll(s).mean().fillna(0))
-
-    # Normalize points to [0, 1] — win rate equivalent
-    combined["form_pts"] = np.where(
+    combined["form_pts"]     = np.where(
         combined["form_n"] > 0,
         combined["form_pts_raw"] / (3 * combined["form_n"]),
         0.0,
     )
 
     form = (
-        combined[["team", "date", "form_pts", "form_gf", "form_ga", "form_n"]]
+        combined[["team", "date", "form_pts", "form_gf", "form_ga"]]
         .groupby(["team", "date"], as_index=False)
         .first()
     )
@@ -160,8 +163,8 @@ def _form_features(df: pd.DataFrame, n: int = FORM_WINDOW) -> pd.DataFrame:
         df[["date", "home_team"]]
         .merge(form.rename(columns={"team": "home_team"}), on=["date", "home_team"], how="left")
         .rename(columns={"form_pts": "home_form_pts", "form_gf": "home_form_gf",
-                         "form_ga": "home_form_ga", "form_n": "home_form_n"})
-        [["home_form_pts", "home_form_gf", "home_form_ga", "home_form_n"]]
+                         "form_ga": "home_form_ga"})
+        [["home_form_pts", "home_form_gf", "home_form_ga"]]
         .fillna(0)
         .reset_index(drop=True)
     )
@@ -169,8 +172,8 @@ def _form_features(df: pd.DataFrame, n: int = FORM_WINDOW) -> pd.DataFrame:
         df[["date", "away_team"]]
         .merge(form.rename(columns={"team": "away_team"}), on=["date", "away_team"], how="left")
         .rename(columns={"form_pts": "away_form_pts", "form_gf": "away_form_gf",
-                         "form_ga": "away_form_ga", "form_n": "away_form_n"})
-        [["away_form_pts", "away_form_gf", "away_form_ga", "away_form_n"]]
+                         "form_ga": "away_form_ga"})
+        [["away_form_pts", "away_form_gf", "away_form_ga"]]
         .fillna(0)
         .reset_index(drop=True)
     )
@@ -180,9 +183,7 @@ def _form_features(df: pd.DataFrame, n: int = FORM_WINDOW) -> pd.DataFrame:
 def _h2h_features(df: pd.DataFrame, n: int = H2H_WINDOW) -> pd.DataFrame:
     """
     H2H features using a pre-indexed dict for O(log k) lookup per match pair.
-    One iteration to build the index, one to compute features.
     """
-    # Build index: frozenset({team1, team2}) → sorted DataFrame of their meetings
     raw: dict[tuple, list] = {}
     for dt, home, away, hs, as_ in zip(
         df["date"], df["home_team"], df["away_team"], df["home_score"], df["away_score"]
@@ -205,7 +206,6 @@ def _h2h_features(df: pd.DataFrame, n: int = H2H_WINDOW) -> pd.DataFrame:
             rows.append({"h2h_home_pts": 0.0, "h2h_gd": 0.0, "h2h_n": 0})
             continue
 
-        # searchsorted gives first position >= dt → all positions before are strictly < dt
         idx  = int(grp["date"].searchsorted(dt, side="left"))
         past = grp.iloc[max(0, idx - n): idx]
         m    = len(past)
@@ -230,13 +230,9 @@ def _h2h_features(df: pd.DataFrame, n: int = H2H_WINDOW) -> pd.DataFrame:
 
 def _host_features(df: pd.DataFrame) -> pd.DataFrame:
     """
-    home_is_host : 1 si le home_team est la nation hôte de cette CdM, 0 sinon.
-    away_is_host : 1 si le away_team est la nation hôte de cette CdM, 0 sinon.
-
-    Implémentation : lookup dict (year, team) → 1, vectorisé sur tout le DataFrame.
-    Aucun fichier externe — auditez WC_HOSTS directement dans ce module.
+    home_is_host / away_is_host : 1 si l'équipe est la nation hôte de cette CdM.
+    Lookup dict vectorisé — aucun fichier externe.
     """
-    # Précalcule un dict plat (year, team) → 1 pour éviter les appels de set par ligne
     host_lookup: dict[tuple[int, str], int] = {}
     for yr, teams in WC_HOSTS.items():
         for t in teams:
@@ -252,21 +248,136 @@ def _host_features(df: pd.DataFrame) -> pd.DataFrame:
     })
 
 
+def _wc_form_features(df: pd.DataFrame, n: int = FORM_WINDOW) -> pd.DataFrame:
+    """
+    Win rate dans les n derniers matchs de tournoi majeur (tier >= 3) avant chaque match.
+
+    Différent de form_pts (toutes compétitions) : un 4-0 en amical et un 1-0 en finale
+    de Copa América ont le même poids dans form_pts, pas ici.
+
+    Implémentation : merge_asof (jointure temporelle "as-of") pour récupérer la
+    wc_form la plus récente avant chaque date de match, même si le match courant
+    n'est pas lui-même un tournoi majeur.
+    """
+    tier = df["tournament"].map(get_tournament_tier)
+    major_df = df[tier >= 3]
+
+    home_m = major_df[["date", "home_team", "home_score", "away_score"]].rename(
+        columns={"home_team": "team", "home_score": "gf", "away_score": "ga"})
+    away_m = major_df[["date", "away_team", "away_score", "home_score"]].rename(
+        columns={"away_team": "team", "away_score": "gf", "home_score": "ga"})
+
+    major = pd.concat([home_m, away_m], ignore_index=True)
+    major["pts"] = np.select(
+        [major["gf"] > major["ga"], major["gf"] == major["ga"]], [3, 1], default=0)
+    major = major.sort_values(["team", "date"]).reset_index(drop=True)
+
+    grp = major.groupby("team")
+
+    def _roll(s: pd.Series):
+        return s.shift(1).rolling(n, min_periods=1)
+
+    wc_n       = grp["pts"].transform(lambda s: _roll(s).count().fillna(0)).astype(int)
+    wc_pts_raw = grp["pts"].transform(lambda s: _roll(s).sum().fillna(0))
+    major["wc_form_pts"] = np.where(wc_n > 0, wc_pts_raw / (3 * wc_n), 0.0)
+
+    # Une entrée par (team, date) pour les tournois majeurs seulement
+    wc_form = (
+        major[["team", "date", "wc_form_pts"]]
+        .groupby(["team", "date"], as_index=False)
+        .first()
+        .sort_values("date")   # merge_asof exige le tri par la clé temporelle
+    )
+
+    # merge_asof : pour chaque match dans df, trouve la wc_form la plus récente ≤ date
+    base = df[["date", "home_team", "away_team"]].copy()
+    base["_idx"] = np.arange(len(base))
+    base = base.sort_values("date")
+
+    home_j = pd.merge_asof(
+        base[["date", "home_team", "_idx"]],
+        wc_form.rename(columns={"team": "home_team", "wc_form_pts": "home_wc_form_pts"}),
+        on="date", by="home_team", direction="backward",
+    ).set_index("_idx").sort_index()["home_wc_form_pts"].fillna(0)
+
+    away_j = pd.merge_asof(
+        base[["date", "away_team", "_idx"]],
+        wc_form.rename(columns={"team": "away_team", "wc_form_pts": "away_wc_form_pts"}),
+        on="date", by="away_team", direction="backward",
+    ).set_index("_idx").sort_index()["away_wc_form_pts"].fillna(0)
+
+    return pd.DataFrame({
+        "home_wc_form_pts": home_j.values,
+        "away_wc_form_pts": away_j.values,
+    })
+
+
+def _rest_days_features(df: pd.DataFrame, cap: int = REST_CAP) -> pd.DataFrame:
+    """
+    Jours depuis le dernier match pour chaque équipe, plafonné à `cap` jours.
+
+    Au-delà de cap jours, le signal "reposé" est le même qu'on soit à 31 ou 180 jours.
+    Valeur initiale (premier match d'une équipe) : cap (neutre).
+
+    Même implémentation merge_asof que wc_form : on calcule les rest_days pour chaque
+    apparition d'une équipe, puis on joint en temporel sur le DataFrame complet.
+    """
+    home_app = df[["date", "home_team"]].rename(columns={"home_team": "team"})
+    away_app = df[["date", "away_team"]].rename(columns={"away_team": "team"})
+    apps = (
+        pd.concat([home_app, away_app])
+        .drop_duplicates()
+        .sort_values(["team", "date"])
+        .reset_index(drop=True)
+    )
+
+    apps["prev_date"] = apps.groupby("team")["date"].shift(1)
+    apps["rest_days"] = (
+        (apps["date"] - apps["prev_date"]).dt.days
+        .clip(upper=cap)
+        .fillna(cap)
+        .astype(int)
+    )
+
+    rest = (
+        apps.groupby(["team", "date"], as_index=False)["rest_days"]
+        .first()
+        .sort_values("date")
+    )
+
+    base = df[["date", "home_team", "away_team"]].copy()
+    base["_idx"] = np.arange(len(base))
+    base = base.sort_values("date")
+
+    home_r = pd.merge_asof(
+        base[["date", "home_team", "_idx"]],
+        rest.rename(columns={"team": "home_team", "rest_days": "home_rest_days"}),
+        on="date", by="home_team", direction="backward",
+    ).set_index("_idx").sort_index()["home_rest_days"].fillna(cap).astype(int)
+
+    away_r = pd.merge_asof(
+        base[["date", "away_team", "_idx"]],
+        rest.rename(columns={"team": "away_team", "rest_days": "away_rest_days"}),
+        on="date", by="away_team", direction="backward",
+    ).set_index("_idx").sort_index()["away_rest_days"].fillna(cap).astype(int)
+
+    return pd.DataFrame({
+        "home_rest_days": home_r.values,
+        "away_rest_days": away_r.values,
+    })
+
+
 def build_features(
     results_path: str | Path | None = None,
     elo_history_path: str | Path | None = None,
 ) -> pd.DataFrame:
     """
-    Build the full feature matrix.
+    Construit la matrice de features complète.
 
-    Parameters
+    Paramètres
     ----------
-    results_path     : path to results.csv  (default: ml/data/results.csv)
-    elo_history_path : path to elo_history.csv (default: ml/data/elo_history.csv)
-
-    Returns
-    -------
-    DataFrame, one row per historical match, ready for train.py.
+    results_path     : chemin vers results.csv  (défaut : ml/data/results.csv)
+    elo_history_path : chemin vers elo_history.csv (défaut : ml/data/elo_history.csv)
     """
     results_path     = Path(results_path     or DATA_DIR / "results.csv")
     elo_history_path = Path(elo_history_path or DATA_DIR / "elo_history.csv")
@@ -275,43 +386,45 @@ def build_features(
     df = df.dropna(subset=["home_score", "away_score"]).sort_values("date").reset_index(drop=True)
     elo = pd.read_csv(elo_history_path, parse_dates=["date"])
 
-    print(f"Loaded {len(df):,} matches (scores disponibles)")
+    print(f"Loaded {len(df):,} matches")
 
     df = _elo_before_match(df, elo)
-    print("ELO features done")
+    print("ELO done")
 
     form_df = _form_features(df)
-    print("Form features done")
+    print("Form done")
 
-    print("Computing H2H features (one loop pass)...")
+    print("H2H (one pass)...")
     h2h_df = _h2h_features(df)
-    print("H2H features done")
+    print("H2H done")
 
     host_df = _host_features(df)
-    n_host = host_df["home_is_host"].sum() + host_df["away_is_host"].sum()
-    print(f"Host features done — {n_host} matchs avec un hôte identifié")
+    print(f"Host done — {host_df['home_is_host'].sum() + host_df['away_is_host'].sum()} host matches")
 
-    df = pd.concat([df.reset_index(drop=True), form_df, h2h_df, host_df], axis=1)
+    wc_form_df = _wc_form_features(df)
+    print("WC form done")
+
+    rest_df = _rest_days_features(df)
+    print("Rest days done")
+
+    df = pd.concat(
+        [df.reset_index(drop=True), form_df, h2h_df, host_df, wc_form_df, rest_df],
+        axis=1,
+    )
 
     df["is_neutral"]      = (df["neutral"].astype(str).str.upper() == "TRUE").astype(int)
     df["tournament_tier"] = df["tournament"].map(get_tournament_tier)
-
     df["result"] = np.select(
         [df["home_score"] > df["away_score"], df["home_score"] == df["away_score"]],
         [2, 1], default=0,
     )
 
-    feature_cols = [
+    out_cols = [
         "date", "home_team", "away_team", "tournament",
-        "elo_home", "elo_away", "elo_diff",
-        "home_form_pts", "home_form_gf", "home_form_ga", "home_form_n",
-        "away_form_pts", "away_form_gf", "away_form_ga", "away_form_n",
-        "h2h_home_pts", "h2h_gd", "h2h_n",
-        "is_neutral", "tournament_tier",
-        "home_is_host", "away_is_host",
+        *FEATURE_COLS,
         "result",
     ]
-    return df[feature_cols]
+    return df[out_cols]
 
 
 if __name__ == "__main__":
@@ -321,10 +434,9 @@ if __name__ == "__main__":
     features = build_features()
     elapsed  = time.time() - t0
 
-    print(f"\nDone in {elapsed:.1f}s — {len(features):,} rows × {features.shape[1]} columns")
-    print(features.dtypes.to_string())
-    print(features.head(3).to_string())
+    print(f"\nDone in {elapsed:.1f}s — {len(features):,} rows × {features.shape[1]} cols")
+    print(features[FEATURE_COLS].describe().round(3).to_string())
 
     out = DATA_DIR / "features.csv"
     features.to_csv(out, index=False)
-    print(f"\nSaved → {out}")
+    print(f"\nSaved -> {out}")
