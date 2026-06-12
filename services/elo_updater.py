@@ -9,12 +9,14 @@ predict.py fusionne les deux fichiers à la volée lors de l'inférence.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pandas as pd
 
+_PERSISTENT_DIR   = Path(os.environ.get("PERSISTENT_DIR", Path(__file__).parent.parent / "ml" / "data"))
 ELO_HISTORY_PATH  = Path(__file__).parent.parent / "ml" / "data" / "elo_history.csv"
-WC_ELO_PATH       = Path(__file__).parent.parent / "ml" / "data" / "wc_elo_updates.csv"
+WC_ELO_PATH       = _PERSISTENT_DIR / "wc_elo_updates.csv"
 WC_TEAMS_PATH     = Path(__file__).parent.parent / "ml" / "data" / "wc2026_teams.csv"
 ELO_INIT          = 1500.0
 K_WC              = 40.0  # Facteur K pour les matchs de Coupe du Monde

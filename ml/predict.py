@@ -13,6 +13,7 @@ Exécution directe (exemples) :
 """
 from __future__ import annotations
 
+import os
 import pickle
 from functools import lru_cache
 from pathlib import Path
@@ -20,10 +21,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+_PERSISTENT_DIR = Path(os.environ.get("PERSISTENT_DIR", Path(__file__).parent / "data"))
+
 from ml.features import DATA_DIR, ELO_INIT, FEATURE_COLS, FORM_WINDOW, H2H_WINDOW, WC_HOSTS
 from ml.poisson import fit_or_load as _poisson_params
 from ml.poisson import predict_score as _poisson_score
-from ml.train import MODEL_PATH
+from ml.train import MODEL_PATH, MODEL_WC_PATH
+from ml.wc_features import WC_FEATURE_COLS, wc_extra_for_match
 
 LABEL_MAP = {2: "home", 1: "draw", 0: "away"}
 LABEL_FR  = {2: "Victoire domicile", 1: "Match nul", 0: "Victoire extérieur"}
@@ -47,6 +51,15 @@ def _model():
 
 
 @lru_cache(maxsize=1)
+def _wc_model():
+    """Modèle XGBoost entraîné sur les matchs WC uniquement (WC_FEATURE_COLS)."""
+    if not MODEL_WC_PATH.exists():
+        return None
+    with open(MODEL_WC_PATH, "rb") as f:
+        return pickle.load(f)
+
+
+@lru_cache(maxsize=1)
 def _data() -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Retourne (results, elo_history) triés par date.
@@ -64,7 +77,7 @@ def _data() -> tuple[pd.DataFrame, pd.DataFrame]:
     )
     elo = pd.read_csv(DATA_DIR / "elo_history.csv", parse_dates=["date"])
 
-    wc_elo_path = DATA_DIR / "wc_elo_updates.csv"
+    wc_elo_path = _PERSISTENT_DIR / "wc_elo_updates.csv"
     if wc_elo_path.exists() and wc_elo_path.stat().st_size > 0:
         wc_elo = pd.read_csv(wc_elo_path, parse_dates=["date"])
         elo = pd.concat([elo, wc_elo], ignore_index=True).sort_values(["team", "date"])
@@ -214,7 +227,16 @@ def build_match_features(
         "away_rest_days":    _rest_days(away_team, date, results),
     }
 
-    return pd.DataFrame([row])[FEATURE_COLS]
+    base = pd.DataFrame([row])[FEATURE_COLS]
+
+    # Pour les matchs WC, enrichir avec les features spécifiques (FIFA rank, etc.)
+    if tournament_tier == 4:
+        extra = wc_extra_for_match(home_team, away_team)
+        for col, val in extra.items():
+            base[col] = val
+        return base[WC_FEATURE_COLS]
+
+    return base
 
 
 # ---------------------------------------------------------------------------
@@ -260,8 +282,10 @@ def predict_match(
     away_ds = _resolve(away_team)
     dt      = pd.Timestamp(date)
 
-    features  = build_match_features(home_ds, away_ds, dt, is_neutral, tournament_tier)
-    proba     = _model().predict_proba(features)[0]  # [P(away), P(draw), P(home)]
+    features = build_match_features(home_ds, away_ds, dt, is_neutral, tournament_tier)
+    wc_mdl   = _wc_model() if tournament_tier == 4 else None
+    model    = wc_mdl if wc_mdl is not None else _model()
+    proba    = model.predict_proba(features)[0]  # [P(away), P(draw), P(home)]
     pred_idx  = int(np.argmax(proba))
     prediction = LABEL_MAP[pred_idx]
 

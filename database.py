@@ -1,7 +1,10 @@
+import os
 import sqlite3
 from datetime import datetime, timezone
+from pathlib import Path
 
-DB_PATH = "football.db"
+_PERSISTENT_DIR = Path(os.environ.get("PERSISTENT_DIR", "."))
+DB_PATH = str(_PERSISTENT_DIR / "football.db")
 
 
 def get_connection():
