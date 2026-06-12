@@ -10,6 +10,8 @@ import asyncio
 from functools import lru_cache
 from pathlib import Path
 
+import os
+
 import discord
 import pandas as pd
 from discord import app_commands
@@ -19,6 +21,7 @@ from services.elo_updater import update_elo_with_match
 
 FIXTURES_PATH   = Path(__file__).parent.parent / "ml" / "data" / "wc2026_fixtures.csv"
 MATCH_ID_OFFSET = 200_000
+_PERSISTENT_DIR = Path(os.environ.get("PERSISTENT_DIR", Path(__file__).parent.parent / "ml" / "data"))
 
 
 @lru_cache(maxsize=1)
@@ -42,7 +45,7 @@ def _apply_score(match_number: int, home_score: int, away_score: int) -> str:
     database.save_match_result(match_id, home_team, away_team, home_score, away_score, group, match_date)
     database.resolve_prediction(match_id, home_score, away_score)
 
-    wc_elo_path = Path(__file__).parent.parent / "ml" / "data" / "wc_elo_updates.csv"
+    wc_elo_path = _PERSISTENT_DIR / "wc_elo_updates.csv"
     already_updated = False
     if wc_elo_path.exists() and wc_elo_path.stat().st_size > 0:
         existing = pd.read_csv(wc_elo_path)
