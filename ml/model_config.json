@@ -12,25 +12,29 @@
     "home_form_pts",
     "home_form_gf",
     "home_form_ga",
-    "home_form_n",
     "away_form_pts",
     "away_form_gf",
     "away_form_ga",
-    "away_form_n",
     "h2h_home_pts",
     "h2h_gd",
     "h2h_n",
     "is_neutral",
-    "tournament_tier"
+    "tournament_tier",
+    "home_is_host",
+    "away_is_host",
+    "home_wc_form_pts",
+    "away_wc_form_pts",
+    "home_rest_days",
+    "away_rest_days"
   ],
   "val_metrics": {
-    "accuracy": 0.5548,
-    "log_loss": 0.8946,
-    "draw_recall": 0.3735
+    "accuracy": 0.5582,
+    "log_loss": 0.8938,
+    "draw_recall": 0.3723
   },
   "test_metrics": {
-    "accuracy": 0.5535,
-    "log_loss": 0.9218,
-    "draw_recall": 0.3329
+    "accuracy": 0.552,
+    "log_loss": 0.9217,
+    "draw_recall": 0.3316
   }
 }

@@ -51,11 +51,11 @@ def display(predictions: pd.DataFrame) -> None:
     """Affiche les prédictions par groupe dans le terminal."""
     for group in sorted(predictions["group"].unique()):
         grp = predictions[predictions["group"] == group]
-        print(f"\n{'━'*72}")
+        print(f"\n{'='*72}")
         print(f"  GROUPE {group}")
-        print(f"{'━'*72}")
+        print(f"{'='*72}")
         print(f"  {'Date':<12} {'Domicile':<26} {'Extérieur':<26} {'Prédiction':<22} {'Conf':>5}  Dom./Nul/Ext.")
-        print(f"  {'─'*70}")
+        print(f"  {'-'*70}")
         for _, r in grp.iterrows():
             print(
                 f"  {r['date']:<12} "
@@ -74,6 +74,6 @@ if __name__ == "__main__":
 
     out = DATA_DIR / "wc2026_predictions.csv"
     predictions.to_csv(out, index=False)
-    print(f"\n{'━'*72}")
-    print(f"Prédictions sauvegardées → {out}")
+    print(f"\n{'='*72}")
+    print(f"Predictions sauvegardees -> {out}")
     print(f"Total : {len(predictions)} matchs prédits")
