@@ -21,6 +21,8 @@ import numpy as np
 import pandas as pd
 
 from ml.features import DATA_DIR, ELO_INIT, FEATURE_COLS, FORM_WINDOW, H2H_WINDOW, WC_HOSTS
+from ml.poisson import fit_or_load as _poisson_params
+from ml.poisson import predict_score as _poisson_score
 from ml.train import MODEL_PATH
 
 LABEL_MAP = {2: "home", 1: "draw", 0: "away"}
@@ -263,22 +265,23 @@ def predict_match(
     pred_idx  = int(np.argmax(proba))
     prediction = LABEL_MAP[pred_idx]
 
-    # Score estimé à partir de la forme offensive pondérée par l'avantage ELO
-    elo_diff_val  = float(features["elo_diff"].iloc[0])
-    expected_home = float(features["home_form_gf"].iloc[0]) * (1 + elo_diff_val / 2000)
-    expected_away = float(features["away_form_gf"].iloc[0]) * (1 - elo_diff_val / 2000)
+    score = _poisson_score(home_ds, away_ds, _poisson_params(), is_neutral=is_neutral)
+    matrix = score["score_matrix"]
 
-    pred_score_home = max(0, round(expected_home))
-    pred_score_away = max(0, round(expected_away))
+    # Most likely score consistent with the XGBoost prediction
+    if prediction == "home":
+        masked = np.tril(matrix, -1)           # home goals > away goals
+    elif prediction == "away":
+        masked = np.triu(matrix, 1)            # away goals > home goals
+    else:
+        diag = np.diag(np.diag(matrix))        # home goals == away goals
+        masked = diag
 
-    # Cohérence score / prédiction : le sens du score doit suivre le vainqueur prédit
-    if prediction == "home" and pred_score_home <= pred_score_away:
-        pred_score_home, pred_score_away = pred_score_away, pred_score_home
-    elif prediction == "away" and pred_score_home >= pred_score_away:
-        pred_score_home, pred_score_away = pred_score_away, pred_score_home
-    elif prediction == "draw":
-        avg = round((pred_score_home + pred_score_away) / 2)
-        pred_score_home, pred_score_away = avg, avg
+    if masked.sum() > 0:
+        best = np.unravel_index(np.argmax(masked), masked.shape)
+        pred_score_home, pred_score_away = int(best[0]), int(best[1])
+    else:
+        pred_score_home, pred_score_away = score["most_likely_score"]
 
     return {
         "home_team":          home_team,
@@ -309,12 +312,13 @@ if __name__ == "__main__":
         ("Japan",     "Korea Republic"),  # test résolution nom FIFA
     ]
 
-    print(f"{'─'*60}")
+    print("-" * 60)
     for home, away in test_matches:
         r = predict_match(home, away, date="2026-06-20")
         p = r["probabilities"]
         print(f"{home:25s} vs {away}")
-        print(f"  → {r['prediction_fr']} (confiance {r['confidence']:.0%})")
+        print(f"  -> {r['prediction_fr']} (confiance {r['confidence']:.0%})")
         print(f"     domicile {p['home']:.0%}  nul {p['draw']:.0%}  extérieur {p['away']:.0%}")
+        print(f"     Score : {r['predicted_score_home']}-{r['predicted_score_away']}")
         print(f"     ELO : {r['elo_home']} vs {r['elo_away']}")
-        print(f"{'─'*60}")
+        print("-" * 60)
