@@ -26,8 +26,7 @@ _PERSISTENT_DIR = Path(os.environ.get("PERSISTENT_DIR", Path(__file__).parent / 
 from ml.features import DATA_DIR, ELO_INIT, FEATURE_COLS, FORM_WINDOW, H2H_WINDOW, WC_HOSTS
 from ml.poisson import fit_or_load as _poisson_params
 from ml.poisson import predict_score as _poisson_score
-from ml.train import MODEL_PATH, MODEL_WC_PATH
-from ml.wc_features import WC_FEATURE_COLS, wc_extra_for_match
+from ml.train import MODEL_PATH
 
 LABEL_MAP = {2: "home", 1: "draw", 0: "away"}
 LABEL_FR  = {2: "Victoire domicile", 1: "Match nul", 0: "Victoire extérieur"}
@@ -49,14 +48,6 @@ def _model():
     with open(MODEL_PATH, "rb") as f:
         return pickle.load(f)
 
-
-@lru_cache(maxsize=1)
-def _wc_model():
-    """Modèle XGBoost entraîné sur les matchs WC uniquement (WC_FEATURE_COLS)."""
-    if not MODEL_WC_PATH.exists():
-        return None
-    with open(MODEL_WC_PATH, "rb") as f:
-        return pickle.load(f)
 
 
 @lru_cache(maxsize=1)
@@ -227,16 +218,7 @@ def build_match_features(
         "away_rest_days":    _rest_days(away_team, date, results),
     }
 
-    base = pd.DataFrame([row])[FEATURE_COLS]
-
-    # Pour les matchs WC, enrichir avec les features spécifiques (FIFA rank, etc.)
-    if tournament_tier == 4:
-        extra = wc_extra_for_match(home_team, away_team)
-        for col, val in extra.items():
-            base[col] = val
-        return base[WC_FEATURE_COLS]
-
-    return base
+    return pd.DataFrame([row])[FEATURE_COLS]
 
 
 # ---------------------------------------------------------------------------
@@ -283,9 +265,7 @@ def predict_match(
     dt      = pd.Timestamp(date)
 
     features = build_match_features(home_ds, away_ds, dt, is_neutral, tournament_tier)
-    wc_mdl   = _wc_model() if tournament_tier == 4 else None
-    model    = wc_mdl if wc_mdl is not None else _model()
-    proba    = model.predict_proba(features)[0]  # [P(away), P(draw), P(home)]
+    proba    = _model().predict_proba(features)[0]  # [P(away), P(draw), P(home)]
     pred_idx  = int(np.argmax(proba))
     prediction = LABEL_MAP[pred_idx]
 
