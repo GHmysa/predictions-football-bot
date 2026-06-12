@@ -8,51 +8,73 @@ Bot Discord de prédiction de matchs de la Coupe du Monde 2026, construit sur un
 
 | Commande | Description |
 |---|---|
-| `/prono groupe:X` | Sélecteur de match pour un groupe (A→L) → prédiction ML avec barres de probabilité |
-| `/standings groupe:X` | Classement en temps réel d'un groupe, avec résultats joués et prédictions à venir |
+| `/prono groupe:X` | Sélecteur de match pour un groupe (A→L) → prédiction ML + score prédit |
+| `/standings groupe:X` | Classement en temps réel + prédictions pour les matchs à venir |
 | `/accuracy` | Précision des prédictions ML sur les matchs résolus |
+| `/simulate groupe:X` | Simulation Monte Carlo (10 000 itérations) — probabilités de qualification |
+| `/score` *(admin)* | Saisie manuelle du score d'un match → met à jour DB + ELO |
 
 ---
 
 ## Architecture ML
 
-### Données
-**Source** : dataset Mart Jürisoo — 49 287 matchs internationaux depuis 1872 (`results.csv`)
+### Deux modèles XGBoost
 
-### Features
+| | Modèle général | Modèle WC |
+|---|---|---|
+| Fichier | `model.pkl` | `model_wc.pkl` |
+| Données train | Tous matchs < 2018 | WC 2002–2014 (256 matchs) |
+| Features | 20 | 24 (20 + 4 WC-spécifiques) |
+| Utilisé pour | Matchs hors-CdM | Matchs CdM 2026 |
+| Accuracy (test) | 55.2% | 48.4% (= baseline ELO) |
+
+### Features générales (20)
+
 | Feature | Description |
 |---|---|
-| `elo_home/away/diff` | ELO calculé depuis 1872 avec K variable (40=CdM / 30=qualif / 20=amical). Seule vraie mesure de la force historique d'une équipe. |
-| `home/away_form_pts/gf/ga` | Forme sur les 5 derniers matchs (taux de victoire, buts marqués/encaissés). Capture l'état récent indépendamment du rating ELO. |
-| `h2h_home_pts/gd` | Historique des 5 derniers duels directs. Certaines équipes dominent systématiquement d'autres. |
-| `is_neutral` | 1 pour tous les matchs CdM (terrain neutre). L'avantage du terrain est réel en football. |
-| `tournament_tier` | 4=CdM, 3=Continental, 2=Qualification, 1=Amical. Les équipes ne jouent pas au même niveau selon l'enjeu. |
+| `elo_home/away/diff` | ELO calculé depuis 1872, K variable (40=CdM / 30=qualif / 20=amical) |
+| `home/away_form_pts/gf/ga` | Forme sur les 5 derniers matchs |
+| `h2h_home_pts/gd/n` | Historique des 5 derniers duels directs |
+| `is_neutral` | 1 pour tous les matchs CdM |
+| `tournament_tier` | 4=CdM, 3=Continental, 2=Qualif, 1=Amical |
+| `home/away_is_host` | Avantage terrain pour USA, Canada, Mexique |
+| `home/away_wc_form_pts` | Win rate dans les tournois majeurs (tier ≥ 3) |
+| `home/away_rest_days` | Jours depuis le dernier match (plafond 30) |
 
-**Règle fondamentale anti-leakage** : toutes les features sont calculées avec uniquement les données **strictement antérieures** au match. `shift(1)` avant tout `rolling()`.
+### Features WC supplémentaires (4)
 
-### Modèle
-- **Algorithme** : XGBoost (`multi:softprob`, 3 classes : domicile / nul / extérieur)
-- **Output** : 3 probabilités calibrées qui somment à 1
-- **Split temporel strict** : train `<2018` / val `2018-2021` / test `2022-2024`
-- **Baseline** : règle naïve ELO — le modèle doit la battre pour être utile
-- **Métriques** : accuracy + log-loss sur le set de test (jamais utilisé pour tuner)
+| Feature | Description |
+|---|---|
+| `rank_diff` | away_rank − home_rank (FIFA) |
+| `log_market_ratio` | log(valeur marchande home / away) |
+| `wc_titles_diff` | Titres CdM home − away |
+| `wc_participations_diff` | Participations CdM home − away |
+
+**Règle fondamentale anti-leakage** : toutes les features sont calculées avec uniquement les données **strictement antérieures** au match (`shift(1)` avant tout `rolling()`).
+
+### Prédiction de score — Dixon-Coles Poisson
+
+En plus de l'issue (H/D/A), le bot prédit un score exact via un modèle de Poisson bivarié (Dixon-Coles) :
+- `λ_home = attack_home × defense_away × home_adv`
+- Paramètres estimés par MLE sur 2 477 matchs compétitifs depuis 2018
+- Score prédit = maximum de la score_matrix **conditionné à l'issue XGBoost** (triangle home/draw/away)
+
+### Mise à jour ELO en temps réel
+
+Les scores sont saisis manuellement via `/score` après chaque match. La commande :
+1. Enregistre le score en base (`match_results`) → `/standings` se met à jour
+2. Résout la prédiction DB (`predictions`) → `/accuracy` se met à jour
+3. Recalcule les ELO et les appende dans `wc_elo_updates.csv`
+4. Invalide le cache `predict.py` → les prochains `/prono` utilisent l'ELO à jour
+
+`elo_history.csv` (1872-2024) n'est **jamais modifié**. `wc_elo_updates.csv` est le delta léger du tournoi.
 
 ### Pipeline offline
-```
-python -m ml.pipeline           # skip si artifacts existent
-python -m ml.pipeline --force   # tout recalculer
-```
-Enchaîne : `features.py` → `train.py` → `run_wc2026.py`
 
-### Mise à jour en temps réel (pendant la CdM)
-Toutes les heures, `auto_resolve` :
-1. Interroge football-data.org → matchs terminés
-2. Résout les prédictions en DB → `/accuracy` se met à jour
-3. Enregistre les scores réels → `/standings` se met à jour
-4. Recalcule les ELO et les appende dans `wc_elo_updates.csv`
-5. Invalide le cache de `predict.py` → les prochains `/prono` utilisent l'ELO à jour
-
-`elo_history.csv` (données 1872-2024) n'est **jamais modifié**. `wc_elo_updates.csv` est le delta léger du tournoi en cours.
+```bash
+python -m ml.train          # entraîne model.pkl + model_wc.pkl
+python -m ml.run_wc2026     # génère wc2026_predictions.csv (72 matchs)
+```
 
 ---
 
@@ -62,10 +84,10 @@ Toutes les heures, `auto_resolve` :
 |---|---|
 | Bot Discord | discord.py 2.3.2 |
 | ML | XGBoost 2.0.3 · scikit-learn 1.4.0 |
+| Optimisation | scipy (MLE Dixon-Coles) |
 | Data | pandas 2.2.0 |
-| HTTP sync | requests 2.31.0 (resolver) |
 | Base de données | SQLite — `predictions` + `match_results` |
-| Hébergement | Railway |
+| Hébergement | Railway (volume `/data` pour la persistance) |
 | Runtime | Python 3.12 |
 
 ---
@@ -75,33 +97,39 @@ Toutes les heures, `auto_resolve` :
 ```
 predictions-football-bot/
 │
-├── bot.py                        # Discord client, 3 commandes, tâche horaire resolver
+├── bot.py                        # Discord client, 5 commandes, prefill prédictions au démarrage
 ├── database.py                   # SQLite — predictions, match_results, stats
 │
 ├── commands/
-│   ├── prono.py                  # /prono  — sélecteur groupe → prédiction ML
-│   ├── standings.py              # /standings — classement temps réel + prédictions à venir
-│   └── accuracy.py               # /accuracy — précision des prédictions résolues
+│   ├── prono.py                  # /prono  — sélecteur groupe → prédiction ML + score
+│   ├── standings.py              # /standings — classement temps réel
+│   ├── accuracy.py               # /accuracy — précision des prédictions
+│   ├── simulate.py               # /simulate — Monte Carlo qualification
+│   └── admin.py                  # /score  — saisie manuelle score (admin)
 │
 ├── services/
 │   ├── ml_model.py               # format_result() — dict predict_match → message Discord
-│   ├── wc_resolver.py            # Résolution horaire via football-data.org + update ELO
 │   └── elo_updater.py            # Calcul ELO post-match → wc_elo_updates.csv
 │
 └── ml/
     ├── pipeline.py               # Orchestrateur : features → train → prédictions
-    ├── features.py               # Feature engineering (ELO, forme, H2H)
-    ├── train.py                  # XGBoost, split temporel, baseline, métriques
-    ├── predict.py                # Inférence match unique (lru_cache données + modèle)
+    ├── features.py               # Feature engineering (ELO, forme, H2H, host, rest)
+    ├── wc_features.py            # Features WC (FIFA rank, market value, palmarès)
+    ├── train.py                  # XGBoost — train() général + train_wc() WC
+    ├── poisson.py                # Dixon-Coles Poisson — score prediction
+    ├── predict.py                # Inférence match unique (lru_cache données + modèles)
+    ├── simulator.py              # Monte Carlo groupe + tournoi complet
     ├── run_wc2026.py             # Prédictions batch groupe stage
-    ├── model.pkl                 # Modèle sérialisé (requis par le bot)
-    ├── metrics.json              # Métriques d'évaluation (accuracy, log-loss)
+    ├── model.pkl                 # Modèle général sérialisé
+    ├── model_wc.pkl              # Modèle WC sérialisé
     └── data/
         ├── results.csv           # Mart Jürisoo — matchs internationaux 1872-2024
-        ├── elo_history.csv       # ELO calculé après chaque match historique
-        ├── wc_elo_updates.csv    # Delta ELO des matchs CdM joués (généré en prod)
+        ├── elo_history.csv       # ELO calculé après chaque match historique (immuable)
         ├── wc2026_fixtures.csv   # Calendrier officiel CdM 2026 (104 matchs)
         ├── wc2026_teams.csv      # Mapping noms FIFA → noms dataset
+        ├── wc_teams_train.csv    # Features WC par équipe 2002-2022 (entraînement)
+        ├── wc_teams_test.csv     # Features WC 2026 (inférence uniquement)
+        ├── poisson_params.json   # Paramètres Dixon-Coles fittés (180 équipes)
         └── wc2026_predictions.csv # Prédictions groupe stage pré-générées
 ```
 
@@ -118,13 +146,7 @@ pip install -r requirements.txt
 Créer `.env` :
 ```env
 DISCORD_TOKEN=...
-GUILD_ID=...
-FOOTBALL_DATA_KEY=...   # football-data.org — utilisé par le resolver
-```
-
-Entraîner le modèle (une fois) :
-```bash
-python -m ml.pipeline
+GUILD_ID=...       # optionnel — sync instantané en dev
 ```
 
 Lancer le bot :
@@ -134,14 +156,29 @@ python bot.py
 
 ---
 
+## Déploiement Railway
+
+1. Connecter le repo GitHub dans Railway
+2. Créer un volume monté sur `/data`
+3. Ajouter les variables d'environnement :
+
+| Variable | Description |
+|---|---|
+| `DISCORD_TOKEN` | Token du bot Discord |
+| `GUILD_ID` | ID du serveur (optionnel) |
+| `PERSISTENT_DIR` | `/data` — chemin du volume Railway |
+
+`football.db` et `wc_elo_updates.csv` sont stockés dans `PERSISTENT_DIR` et survivent aux redéploiements.
+
+---
+
 ## Limites connues
 
 | Limite | Détail |
 |---|---|
-| **Pas de score exact** | Le modèle prédit H/D/A, pas un score précis |
-| **Mapping noms football-data.org** | Si un nom d'équipe ne correspond pas, le resolver log un avertissement — corriger `_FDORG_TO_FIXTURE` dans `wc_resolver.py` |
-| **Phases éliminatoires** | `/prono` ne couvre que le groupe stage. Pour les KO : mettre à jour `wc2026_fixtures.csv` avec les vraies équipes une fois qualifiées |
-| **`wc_elo_updates.csv` non persisté** | Railway recrée le filesystem à chaque redémarrage. L'ELO repart de 0 après un redémarrage du pod (solution : le committer après chaque journée) |
+| **Phases éliminatoires** | `/prono` couvre uniquement le groupe stage. Pour les KO, mettre à jour `wc2026_fixtures.csv` avec les équipes qualifiées |
+| **Modèle WC = baseline** | 48.4% d'accuracy sur WC 2022 — égalité avec la règle naïve ELO. Normal avec 256 matchs d'entraînement |
+| **Saisie manuelle** | Les scores sont entrés via `/score` après chaque match — pas de résolution automatique |
 
 ---
 
