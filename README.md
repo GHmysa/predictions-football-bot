@@ -18,17 +18,16 @@ Bot Discord de prédiction de matchs de la Coupe du Monde 2026, construit sur un
 
 ## Architecture ML
 
-### Deux modèles XGBoost
+### Deux modèles selon le contexte
 
-| | Modèle général | Modèle WC |
+| Contexte | Issue (H/D/A) | Score |
 |---|---|---|
-| Fichier | `model.pkl` | `model_wc.pkl` |
-| Données train | Tous matchs < 2018 | WC 2002–2014 (256 matchs) |
-| Features | 20 | 24 (20 + 4 WC-spécifiques) |
-| Utilisé pour | Matchs hors-CdM | Matchs CdM 2026 |
-| Accuracy (test) | 55.2% | 48.4% (= baseline ELO) |
+| **Matchs CdM** (`tournament_tier=4`) | Poisson Dixon-Coles — 54.7% sur WC 2022 | Conditionné à l'issue Poisson |
+| **Matchs ordinaires** | XGBoost général — 55.2% sur 2022-2024 | Conditionné à l'issue XGBoost |
 
-### Features générales (20)
+Le Poisson outperforme XGBoost sur les matchs WC (+7.8 pp) car il capte la force individuelle attack/defense de chaque équipe, mieux adaptée à un tournoi où tous les participants sont de haut niveau.
+
+### Features XGBoost (20)
 
 | Feature | Description |
 |---|---|
@@ -41,23 +40,16 @@ Bot Discord de prédiction de matchs de la Coupe du Monde 2026, construit sur un
 | `home/away_wc_form_pts` | Win rate dans les tournois majeurs (tier ≥ 3) |
 | `home/away_rest_days` | Jours depuis le dernier match (plafond 30) |
 
-### Features WC supplémentaires (4)
-
-| Feature | Description |
-|---|---|
-| `rank_diff` | away_rank − home_rank (FIFA) |
-| `log_market_ratio` | log(valeur marchande home / away) |
-| `wc_titles_diff` | Titres CdM home − away |
-| `wc_participations_diff` | Participations CdM home − away |
-
 **Règle fondamentale anti-leakage** : toutes les features sont calculées avec uniquement les données **strictement antérieures** au match (`shift(1)` avant tout `rolling()`).
 
-### Prédiction de score — Dixon-Coles Poisson
+### Modèle Poisson — Dixon-Coles
 
-En plus de l'issue (H/D/A), le bot prédit un score exact via un modèle de Poisson bivarié (Dixon-Coles) :
-- `λ_home = attack_home × defense_away × home_adv`
-- Paramètres estimés par MLE sur 2 477 matchs compétitifs depuis 2018
-- Score prédit = maximum de la score_matrix **conditionné à l'issue XGBoost** (triangle home/draw/away)
+`λ_home = attack_home × defense_away × home_adv`
+
+- Paramètres estimés par MLE sur 2 477 matchs compétitifs depuis 2018 (filtrés aux équipes WC 2026)
+- 180 équipes avec des ratings attack/defense individuels
+- Correction Dixon-Coles (τ) sur les bas scores (0-0, 1-0, 0-1, 1-1)
+- Score prédit = argmax de la score_matrix **dans le triangle correspondant à l'issue prédite**
 
 ### Mise à jour ELO en temps réel
 

@@ -174,16 +174,16 @@ match_group, match_date
 
 ## 3. État du pipeline ML
 
-### Deux modèles XGBoost
+### Architecture de prédiction
 
-| | Modèle général | Modèle WC |
+| Contexte | Issue (H/D/A) | Score |
 |---|---|---|
-| Fichier | `model.pkl` | `model_wc.pkl` |
-| Features | 20 (`FEATURE_COLS`) | 24 (`WC_FEATURE_COLS`) |
-| Train | Tous matchs < 2018 | WC 2002–2014 (256 matchs) |
-| Val | 2018–2021 | WC 2018 (64 matchs) |
-| Test | 2022–2024 | WC 2022 (64 matchs) |
-| Utilisé pour | Matchs hors-WC | `tournament_tier=4` |
+| **Matchs WC** (`tournament_tier=4`) | Poisson Dixon-Coles | Conditionné à l'issue Poisson |
+| **Matchs ordinaires** | XGBoost général (`model.pkl`) | Conditionné à l'issue XGBoost |
+
+**Pourquoi Poisson pour la CdM :** backtest sur WC 2022 — Poisson 54.7% vs XGBoost 46.9% vs baseline ELO 56.2%. XGBoost manque de données WC (256 matchs train) et est mal calibré sur des équipes toutes de haut niveau. Poisson capte la force attack/defense individuelle sur 2 477 matchs récents.
+
+### Modèle XGBoost général (`model.pkl`)
 
 ### Features générales (20)
 ```
@@ -214,20 +214,23 @@ wc_participations_diff  : home_participations - away_participations
 
 > XGBoost est légèrement sous la baseline ELO en accuracy brute mais capte mieux les nuls (draw recall +10 pp) — le vrai apport du modèle.
 
-### Métriques finales — modèle WC
+### Backtest WC 2022 (64 matchs)
 
-| Métrique | Baseline ELO (test WC 2022) | XGBoost WC (test WC 2022) |
-|---|---|---|
-| Accuracy | 48.44% | **48.44%** |
+| Modèle | Accuracy |
+|---|---|
+| Baseline ELO naïve | 56.2% |
+| **Poisson Dixon-Coles** | **54.7%** ← utilisé en prod |
+| XGBoost WC (256 train) | 48.4% |
+| XGBoost général | 46.9% |
 
-> Égalité avec la baseline sur 64 matchs. Attendu avec seulement 256 examples d'entraînement. Les features WC (market value 7.1%, rank 4.8%) contribuent en feature importance mais n'améliorent pas l'accuracy agrégée.
+Poisson est le meilleur de nos modèles sur WC. Il sous-prédit les nuls (2/15) mais donne des probabilités de draw non-nulles et réalistes (25-35%).
 
 ### Score prediction — Dixon-Coles Poisson
 
 `ml/poisson.py` — MLE sur 2477 matchs compétitifs depuis 2018 (filtrés : au moins une équipe WC 2026).
 - `lambda_home = attack_home × defense_away × home_adv`
 - `home_adv = 1.318`, `rho = -0.092` (correction Dixon-Coles pour bas scores)
-- Score prédit = argmax dans le triangle/diagonale de la score_matrix conditionné à l'issue XGBoost
+- Score prédit = argmax dans le triangle/diagonale de la score_matrix, conditionné à l'issue prédite (Poisson pour WC, XGBoost pour le reste)
 - Équipes inconnues (ex. Curaçao) → fallback = médiane des équipes WC dans le modèle
 
 ### Split temporel (règle stricte — jamais de shuffle)
@@ -249,7 +252,7 @@ WC      : Train WC 2002-2014 | Val WC 2018   | Test WC 2022
 ### ✅ Opérationnel
 - Bot Discord actif sur Railway
 - Deux modèles XGBoost déployés (général + WC)
-- Score prediction via Dixon-Coles Poisson (conditionnel à l'issue XGBoost)
+- Score prediction via Dixon-Coles Poisson (conditionnel à l'issue prédite)
 - `/prono` : prédictions à la volée, tous les groupes A-L, avec score prédit
 - `/standings` : opérationnel (scores réels depuis le 11/06)
 - `/accuracy` : représentatif dès le 1er match — 72 prédictions pré-remplies en DB
