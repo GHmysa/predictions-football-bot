@@ -7,7 +7,7 @@ Remplace l'ancien comportement IA + football-data.org.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import date, datetime
 from functools import lru_cache
 from pathlib import Path
 
@@ -35,9 +35,10 @@ def _fixtures() -> pd.DataFrame:
 
 
 def _group_matches(group: str) -> list[dict]:
-    """Retourne les matchs d'un groupe triés par date."""
+    """Retourne les matchs à venir d'un groupe (date >= aujourd'hui), triés par date."""
+    today = date.today().isoformat()
     return (
-        _fixtures()[_fixtures()["group"] == group]
+        _fixtures()[(_fixtures()["group"] == group) & (_fixtures()["date"] >= today)]
         .sort_values("date")
         .to_dict("records")
     )
@@ -119,7 +120,7 @@ async def prono(interaction: discord.Interaction, groupe: app_commands.Choice[st
     matches = _group_matches(groupe.value)
     if not matches:
         await interaction.followup.send(
-            f"Aucun match trouvé pour le Groupe {groupe.value}."
+            f"Tous les matchs du Groupe {groupe.value} sont terminés."
         )
         return
 
