@@ -13,6 +13,7 @@ from commands.standings import setup as setup_standings
 from commands.simulate import setup as setup_simulate
 from commands.admin import setup as setup_admin
 from ml.predict import predict_match
+from ml.poisson import fit_or_load as _poisson_params
 import database
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
@@ -70,8 +71,27 @@ async def on_ready():
         synced = await tree.sync()
         print(f"[SYNC] {len(synced)} commandes synced globalement")
 
+    def _startup_log() -> None:
+        # Déclenche le chargement des params Poisson et log l'état
+        params = _poisson_params()
+        with database.get_connection() as conn:
+            n_results = conn.execute("SELECT COUNT(*) FROM match_results").fetchone()[0]
+            n_preds   = conn.execute("SELECT COUNT(*) FROM predictions").fetchone()[0]
+            n_resolved = conn.execute(
+                "SELECT COUNT(*) FROM predictions WHERE actual_result IS NOT NULL"
+            ).fetchone()[0]
+        print(
+            f"[STARTUP] DB : {n_results} matchs joues | "
+            f"{n_resolved}/{n_preds} predictions resolues"
+        )
+        print(
+            f"[STARTUP] Poisson : {params['n_matches']} matchs | "
+            f"ref_date={params.get('ref_date','?')} | home_adv={params['home_adv']:.3f}"
+        )
+
+    await asyncio.to_thread(_startup_log)
     await _prefill_predictions()
-    print(f"Connecté en tant que {client.user}")
+    print(f"[STARTUP] Bot pret : {client.user}")
 
 
 client.run(DISCORD_TOKEN)

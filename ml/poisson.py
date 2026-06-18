@@ -323,9 +323,16 @@ def fit_or_load() -> dict:
     """
     params = load()
     if params is None:
-        print("poisson_params.json introuvable — ajustement du modele...")
+        print("[POISSON] Aucun fichier params — refit depuis zero...")
         params = fit()
         save(params)
+    else:
+        src = "PERSISTENT_DIR" if PARAMS_PATH.exists() else "bundled (pre-tournoi)"
+        wc_matches = params.get("n_matches", "?")
+        print(
+            f"[POISSON] Params charges depuis {src} | "
+            f"{wc_matches} matchs | home_adv={params['home_adv']:.3f} | rho={params['rho']:.4f}"
+        )
     return params
 
 
@@ -339,7 +346,16 @@ def refit_with_new_results() -> None:
     params = fit()
     save(params)
     fit_or_load.cache_clear()
-    print(f"[POISSON] Cache invalide — prochain /prono utilisera {params['n_matches']} matchs")
+    # Vider aussi le cache KO du simulateur si chargé
+    try:
+        from ml.simulator import _ko_probs_cache
+        _ko_probs_cache.clear()
+    except ImportError:
+        pass
+    print(
+        f"[POISSON] Refit OK — {params['n_matches']} matchs | "
+        f"home_adv={params['home_adv']:.3f} | rho={params['rho']:.4f}"
+    )
 
 
 # ---------------------------------------------------------------------------
