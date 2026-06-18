@@ -14,6 +14,7 @@ Exécution directe (refit + exemples) :
 from __future__ import annotations
 
 import json
+import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -25,7 +26,10 @@ from scipy.stats import poisson
 
 from ml.features import DATA_DIR
 
-PARAMS_PATH = Path(__file__).parent / "data" / "poisson_params.json"
+# Params mis à jour pendant le tournoi → stockés dans PERSISTENT_DIR
+_PERSISTENT_DIR  = Path(os.environ.get("PERSISTENT_DIR", Path(__file__).parent / "data"))
+PARAMS_PATH      = _PERSISTENT_DIR / "poisson_params.json"
+PARAMS_PATH_BUNDLED = Path(__file__).parent / "data" / "poisson_params.json"
 
 # Matchs compétitifs depuis cette date pour l'estimation
 FIT_SINCE = "2018-01-01"
@@ -76,10 +80,43 @@ def _wc2026_teams() -> set[str]:
     )
 
 
+def _wc2026_results_from_db() -> pd.DataFrame:
+    """
+    Lit les résultats WC 2026 déjà joués depuis la table match_results (SQLite).
+    Mappe les noms FIFA → noms dataset pour cohérence avec results.csv.
+    Retourne un DataFrame vide si la DB est inaccessible ou vide.
+    """
+    try:
+        import database
+        with database.get_connection() as conn:
+            rows = conn.execute(
+                "SELECT home_team, away_team, home_score, away_score, match_date "
+                "FROM match_results"
+            ).fetchall()
+        if not rows:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(rows, columns=["home_team", "away_team", "home_score", "away_score", "date"])
+        df["date"] = pd.to_datetime(df["date"])
+        df["tournament"] = "FIFA World Cup"
+        df["neutral"] = True
+
+        wc_teams = pd.read_csv(DATA_DIR / "wc2026_teams.csv")
+        name_map = dict(zip(wc_teams["fifa_name"], wc_teams["dataset_name"]))
+        df["home_team"] = df["home_team"].map(lambda x: name_map.get(x, x))
+        df["away_team"] = df["away_team"].map(lambda x: name_map.get(x, x))
+        df["home_score"] = df["home_score"].astype(int)
+        df["away_score"] = df["away_score"].astype(int)
+        return df
+    except Exception as e:
+        print(f"[POISSON] Impossible de lire les resultats WC 2026 depuis la DB : {e}")
+        return pd.DataFrame()
+
+
 def _load_matches() -> pd.DataFrame:
     """
-    Matchs compétitifs depuis FIT_SINCE où au moins une équipe joue en WC 2026.
-    Filtre les micro-nations (Samoa, Vanuatu…) qui fausseraient les ratings.
+    Matchs compétitifs depuis FIT_SINCE où au moins une équipe joue en WC 2026,
+    augmentés des résultats WC 2026 déjà joués (depuis la DB SQLite).
     """
     df = pd.read_csv(DATA_DIR / "results.csv", parse_dates=["date"])
     df = df.dropna(subset=["home_score", "away_score"])
@@ -92,7 +129,13 @@ def _load_matches() -> pd.DataFrame:
 
     df["home_score"] = df["home_score"].astype(int)
     df["away_score"] = df["away_score"].astype(int)
-    return df.reset_index(drop=True)
+
+    wc2026 = _wc2026_results_from_db()
+    if not wc2026.empty:
+        df = pd.concat([df, wc2026], ignore_index=True).sort_values("date").reset_index(drop=True)
+        print(f"  + {len(wc2026)} resultats WC 2026 integres depuis la DB")
+
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -255,16 +298,21 @@ def fit(ref_date: pd.Timestamp | None = None) -> dict:
 # ---------------------------------------------------------------------------
 
 def save(params: dict) -> None:
+    PARAMS_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(PARAMS_PATH, "w", encoding="utf-8") as f:
         json.dump(params, f, indent=2, ensure_ascii=False)
     print(f"Parametres Poisson sauvegardes -> {PARAMS_PATH}")
 
 
 def load() -> dict | None:
-    if not PARAMS_PATH.exists():
-        return None
-    with open(PARAMS_PATH, encoding="utf-8") as f:
-        return json.load(f)
+    """Charge depuis PERSISTENT_DIR en priorité, sinon depuis le fichier bundled."""
+    if PARAMS_PATH.exists():
+        with open(PARAMS_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    if PARAMS_PATH_BUNDLED.exists():
+        with open(PARAMS_PATH_BUNDLED, encoding="utf-8") as f:
+            return json.load(f)
+    return None
 
 
 @lru_cache(maxsize=1)
@@ -275,10 +323,23 @@ def fit_or_load() -> dict:
     """
     params = load()
     if params is None:
-        print("poisson_params.json introuvable — ajustement du modèle...")
+        print("poisson_params.json introuvable — ajustement du modele...")
         params = fit()
         save(params)
     return params
+
+
+def refit_with_new_results() -> None:
+    """
+    Refit Dixon-Coles en intégrant les résultats WC 2026 depuis la DB.
+    Sauvegarde dans PERSISTENT_DIR et invalide le cache.
+    Appelé automatiquement après chaque /score admin.
+    """
+    print("[POISSON] Refit en cours avec les nouveaux resultats WC 2026...")
+    params = fit()
+    save(params)
+    fit_or_load.cache_clear()
+    print(f"[POISSON] Cache invalide — prochain /prono utilisera {params['n_matches']} matchs")
 
 
 # ---------------------------------------------------------------------------

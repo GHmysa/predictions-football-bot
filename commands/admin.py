@@ -17,6 +17,7 @@ import pandas as pd
 from discord import app_commands
 
 import database
+from ml.poisson import refit_with_new_results
 from services.elo_updater import update_elo_with_match
 
 FIXTURES_PATH   = Path(__file__).parent.parent / "ml" / "data" / "wc2026_fixtures.csv"
@@ -57,11 +58,13 @@ def _apply_score(match_number: int, home_score: int, away_score: int) -> str:
     if not already_updated:
         update_elo_with_match(home_team, away_team, home_score, away_score, match_date)
 
+    refit_with_new_results()
+
     result_str = "Victoire domicile" if home_score > away_score else ("Nul" if home_score == away_score else "Victoire extérieure")
     return (
         f"✅ **Match #{match_number} enregistré**\n"
         f"{home_team} **{home_score} – {away_score}** {away_team}\n"
-        f"_{result_str} • ELO mis à jour • /standings et /accuracy à jour_"
+        f"_{result_str} • ELO mis à jour • Poisson refitté • /prono à jour_"
     )
 
 
