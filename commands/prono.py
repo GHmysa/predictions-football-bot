@@ -124,11 +124,8 @@ class GroupView(discord.ui.View):
     name="prono",
     description="Prédictions ML pour les matchs de la Coupe du Monde 2026",
 )
-@app_commands.describe(groupe="Groupe (A à L) ou tour éliminatoire (Round of 32…)")
+@app_commands.describe(groupe="Tour éliminatoire")
 @app_commands.choices(groupe=[
-    app_commands.Choice(name=f"Groupe {g}", value=g)
-    for g in "ABCDEFGHIJKL"
-] + [
     app_commands.Choice(name="Round of 32 (1/16)",  value="R32"),
     app_commands.Choice(name="Round of 16 (1/8)",   value="R16"),
     app_commands.Choice(name="Quarts de finale",    value="QF"),
