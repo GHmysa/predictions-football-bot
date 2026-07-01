@@ -18,7 +18,8 @@ from discord import app_commands
 
 import database
 from ml.poisson import refit_with_new_results
-from services.elo_updater import update_elo_with_match
+from services.elo_updater import update_elo_with_match, remove_elo_for_match
+
 
 FIXTURES_PATH   = Path(__file__).parent.parent / "ml" / "data" / "wc2026_fixtures.csv"
 MATCH_ID_OFFSET = 200_000
@@ -58,8 +59,8 @@ def _apply_score(match_number: int, home_score: int, away_score: int) -> str:
     if not already_updated:
         update_elo_with_match(home_team, away_team, home_score, away_score, match_date)
     else:
-        print(f"[SCORE] ELO deja mis a jour pour {home_team}/{away_team} le {match_date} — skip")
-
+        remove_elo_for_match(home_team, away_team, match_date)
+        update_elo_with_match(home_team, away_team, home_score, away_score, match_date)
     refit_with_new_results()
 
     result_str = "Victoire domicile" if home_score > away_score else ("Nul" if home_score == away_score else "Victoire extérieure")

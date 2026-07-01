@@ -95,3 +95,34 @@ def update_elo_with_match(
         _data.cache_clear()
     except ImportError:
         pass
+
+def remove_elo_for_match(home_fixture: str, away_fixture: str, match_date: str) -> None:
+    """
+    Supprime les mises à jour ELO pour un match donné (home/away/date) dans wc_elo_updates.csv.
+    Utilisé pour corriger un score saisi par erreur.
+    """
+    if not WC_ELO_PATH.exists() or WC_ELO_PATH.stat().st_size == 0:
+        print(f"[ELO REMOVE] Aucun fichier wc_elo_updates.csv trouvé — rien à supprimer")
+        return
+
+    home_ds = _fixture_to_dataset(home_fixture)
+    away_ds = _fixture_to_dataset(away_fixture)
+
+    elo = pd.read_csv(WC_ELO_PATH, parse_dates=["date"])
+    before_count = len(elo)
+    elo = elo[~(
+        ((elo["team"] == home_ds) | (elo["team"] == away_ds)) &
+        (elo["date"] == pd.Timestamp(match_date))
+    )]
+    after_count = len(elo)
+
+    elo.to_csv(WC_ELO_PATH, index=False)
+    print(f"[ELO REMOVE] {before_count - after_count} lignes supprimées pour {home_fixture}/{away_fixture} le {match_date}")
+
+    # Invalider le cache de predict.py pour que les prochaines prédictions
+    # relisent wc_elo_updates.csv avec les valeurs fraîches
+    try:
+        from ml.predict import _data
+        _data.cache_clear()
+    except ImportError:
+        pass

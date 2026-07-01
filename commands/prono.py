@@ -2,7 +2,7 @@
 commands/prono.py — Commande /prono CdM 2026 avec prédictions ML.
 
 UX : /prono groupe:A → sélecteur de match → prédiction ML avec barres de probabilité.
-Remplace l'ancien comportement IA + football-data.org.
+     /prono groupe:R32 → sélecteur matchs Round of 32, etc.
 """
 from __future__ import annotations
 
@@ -21,31 +21,51 @@ from services.ml_model import format_result
 
 FIXTURES_PATH  = Path(__file__).parent.parent / "ml" / "data" / "wc2026_fixtures.csv"
 WC_COMPETITION = "WC2026"
-
-# Préfixe pour les match_id en DB : évite toute collision avec les IDs football-data.org
-# Les match_numbers CdM vont de 1 à 104 → IDs DB : 200001–200104
 MATCH_ID_OFFSET = 200_000
+
+# Traduction valeur Discord → nom de stage dans le CSV
+STAGE_MAP = {
+    "R32": "Round of 32",
+    "R16": "Round of 16",
+    "QF":  "Quarter Finals",
+    "SF":  "Semi Finals",
+    "F":   "Finals",
+}
 
 
 @lru_cache(maxsize=1)
 def _fixtures() -> pd.DataFrame:
-    """Charge les fixtures groupe stage une seule fois."""
-    df = pd.read_csv(FIXTURES_PATH)
-    return df[df["stage"] == "Group Stage"].copy()
+    return pd.read_csv(FIXTURES_PATH)
 
 
-def _group_matches(group: str) -> list[dict]:
-    """Retourne les matchs à venir d'un groupe (date >= aujourd'hui), triés par date."""
+def _get_matches(selection: str) -> list[dict]:
+    """Retourne les matchs à venir pour un groupe (A-L) ou un tour KO (R32, R16…)."""
     today = date.today().isoformat()
-    return (
-        _fixtures()[(_fixtures()["group"] == group) & (_fixtures()["date"] >= today)]
-        .sort_values("date")
-        .to_dict("records")
-    )
+    df = _fixtures()
+    if selection in STAGE_MAP:
+        stage = STAGE_MAP[selection]
+        filtered = df[
+            (df["stage"] == stage) &
+            (df["date"] >= today) &
+            (df["home_team"] != "To be announced") &
+            (df["away_team"] != "To be announced")
+        ]
+    else:
+        filtered = df[
+            (df["group"] == selection) &
+            (df["date"] >= today)
+        ]
+    return filtered.sort_values("date").to_dict("records")
+
+
+def _display_label(selection: str) -> str:
+    if selection in STAGE_MAP:
+        return STAGE_MAP[selection]
+    return f"Groupe {selection}"
 
 
 class MatchSelect(discord.ui.Select):
-    def __init__(self, matches: list[dict], group: str):
+    def __init__(self, matches: list[dict], selection: str):
         self._matches = {str(m["match_number"]): m for m in matches}
         options = []
         for m in matches:
@@ -57,15 +77,15 @@ class MatchSelect(discord.ui.Select):
                 value=str(m["match_number"]),
             ))
         super().__init__(
-            placeholder=f"Groupe {group} — choisissez un match…",
+            placeholder=f"{_display_label(selection)} — choisissez un match…",
             options=options,
         )
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        match   = self._matches[self.values[0]]
-        home    = match["home_team"]
-        away    = match["away_team"]
-        date    = match["date"]
+        match    = self._matches[self.values[0]]
+        home     = match["home_team"]
+        away     = match["away_team"]
+        dt       = match["date"]
         match_id = MATCH_ID_OFFSET + int(match["match_number"])
 
         await interaction.response.edit_message(
@@ -74,10 +94,8 @@ class MatchSelect(discord.ui.Select):
         )
 
         try:
-            # predict_match() est synchrone (pandas + pickle) → thread pour ne pas
-            # bloquer la boucle événementielle Discord pendant le calcul
             result = await asyncio.to_thread(
-                predict_match, home, away, date, True, 4
+                predict_match, home, away, dt, True, 4
             )
         except Exception as e:
             await interaction.followup.send(f"❌ Erreur ML : {e}")
@@ -85,8 +103,6 @@ class MatchSelect(discord.ui.Select):
 
         message = format_result(result)
 
-        # Encode H/D/A comme score symbolique pour la DB existante
-        # (is_correct_result sera correct ; is_correct_score n'est pas pertinent ici)
         pred      = result["prediction"]
         pred_home = 1 if pred == "home" else 0
         pred_away = 1 if pred == "away" else 0
@@ -99,37 +115,43 @@ class MatchSelect(discord.ui.Select):
 
 
 class GroupView(discord.ui.View):
-    def __init__(self, matches: list[dict], group: str):
+    def __init__(self, matches: list[dict], selection: str):
         super().__init__(timeout=120)
-        self.add_item(MatchSelect(matches, group))
+        self.add_item(MatchSelect(matches, selection))
 
 
 @app_commands.command(
     name="prono",
     description="Prédictions ML pour les matchs de la Coupe du Monde 2026",
 )
-@app_commands.describe(groupe="Groupe à consulter (A à L)")
+@app_commands.describe(groupe="Groupe (A à L) ou tour éliminatoire (Round of 32…)")
 @app_commands.choices(groupe=[
     app_commands.Choice(name=f"Groupe {g}", value=g)
     for g in "ABCDEFGHIJKL"
+] + [
+    app_commands.Choice(name="Round of 32 (1/16)",  value="R32"),
+    app_commands.Choice(name="Round of 16 (1/8)",   value="R16"),
+    app_commands.Choice(name="Quarts de finale",    value="QF"),
+    app_commands.Choice(name="Demi-finales",        value="SF"),
+    app_commands.Choice(name="Finale / 3e place",   value="F"),
 ])
 async def prono(interaction: discord.Interaction, groupe: app_commands.Choice[str]) -> None:
-    """Affiche un sélecteur de match pour le groupe demandé."""
     await interaction.response.defer()
 
-    matches = _group_matches(groupe.value)
+    matches = _get_matches(groupe.value)
     if not matches:
+        label = _display_label(groupe.value)
         await interaction.followup.send(
-            f"Tous les matchs du Groupe {groupe.value} sont terminés."
+            f"Tous les matchs du {label} sont terminés ou les équipes ne sont pas encore connues."
         )
         return
 
+    label = _display_label(groupe.value)
     await interaction.followup.send(
-        f"**🏆 Coupe du Monde 2026 — Groupe {groupe.value}**\nChoisissez un match :",
+        f"**🏆 Coupe du Monde 2026 — {label}**\nChoisissez un match :",
         view=GroupView(matches, groupe.value),
     )
 
 
 def setup(tree: app_commands.CommandTree) -> None:
-    """Enregistre la commande dans le command tree Discord."""
     tree.add_command(prono)

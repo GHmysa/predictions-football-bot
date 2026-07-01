@@ -188,14 +188,16 @@ def save_match_result(
     match_group: str | None,
     match_date: str,
 ) -> None:
-    """Enregistre le score réel d'un match. Ignoré si match_id existe déjà."""
+    """Enregistre le score réel d'un match. Si le match_id existe déjà, met à jour le score."""
     with get_connection() as conn:
         conn.execute(
             """
             INSERT INTO match_results
                 (match_id, home_team, away_team, home_score, away_score, match_group, match_date)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(match_id) DO NOTHING
+            ON CONFLICT(match_id) DO UPDATE SET
+                home_score = excluded.home_score,
+                away_score = excluded.away_score
             """,
             (match_id, home_team, away_team, home_score, away_score, match_group, match_date),
         )

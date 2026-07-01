@@ -38,6 +38,8 @@ async def _prefill_predictions() -> None:
             }
         count = 0
         for _, row in _fixtures().iterrows():
+            if row["home_team"] == "To be announced" or row["away_team"] == "To be announced":
+                continue
             match_id = MATCH_ID_OFFSET + int(row["match_number"])
             if match_id in existing:
                 continue
