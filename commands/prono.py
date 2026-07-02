@@ -98,7 +98,7 @@ class MatchSelect(discord.ui.Select):
                 predict_match, home, away, dt, True, 4
             )
         except Exception as e:
-            await interaction.followup.send(f"❌ Erreur ML : {e}")
+            await interaction.followup.send(f"❌ Erreur ML : {e}", ephemeral=True)
             return
 
         message = format_result(result)
@@ -111,7 +111,7 @@ class MatchSelect(discord.ui.Select):
             match_id, WC_COMPETITION, home, away, pred_home, pred_away,
         )
 
-        await interaction.followup.send(message)
+        await interaction.followup.send(message, ephemeral=True)
 
 
 class GroupView(discord.ui.View):
@@ -133,13 +133,14 @@ class GroupView(discord.ui.View):
     app_commands.Choice(name="Finale / 3e place",   value="F"),
 ])
 async def prono(interaction: discord.Interaction, groupe: app_commands.Choice[str]) -> None:
-    await interaction.response.defer()
+    await interaction.response.defer(ephemeral=True)
 
     matches = _get_matches(groupe.value)
     if not matches:
         label = _display_label(groupe.value)
         await interaction.followup.send(
-            f"Tous les matchs du {label} sont terminés ou les équipes ne sont pas encore connues."
+            f"Tous les matchs du {label} sont terminés ou les équipes ne sont pas encore connues.",
+            ephemeral=True,
         )
         return
 
@@ -147,6 +148,7 @@ async def prono(interaction: discord.Interaction, groupe: app_commands.Choice[st
     await interaction.followup.send(
         f"**🏆 Coupe du Monde 2026 — {label}**\nChoisissez un match :",
         view=GroupView(matches, groupe.value),
+        ephemeral=True,
     )
 
 
