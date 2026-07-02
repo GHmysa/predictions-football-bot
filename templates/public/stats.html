@@ -145,11 +145,16 @@
 
 {% block scripts %}
 {% if stats.total > 0 %}
+<div id="perf-data"
+     data-dates="{{ dates | tojson | e }}"
+     data-cum-acc="{{ cum_acc | tojson | e }}"
+     hidden></div>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
 <script>
 // ── Accuracy curve ──────────────────────────────────────────────────
-const dates   = {{ dates | tojson }};
-const cumAcc  = {{ cum_acc | tojson }};
+const _d     = document.getElementById('perf-data');
+const dates  = JSON.parse(_d.dataset.dates);
+const cumAcc = JSON.parse(_d.dataset.cumAcc);
 
 new Chart(document.getElementById('accChart').getContext('2d'), {
   type: 'line',
