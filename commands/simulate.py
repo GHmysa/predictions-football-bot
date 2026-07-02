@@ -1,72 +1,58 @@
-"""commands/simulate.py — Commande /simulate : Monte Carlo qualification probabilities."""
+"""commands/simulate.py — /simulate : Monte Carlo WC 2026 winner probabilities from R16."""
 from __future__ import annotations
 
 import asyncio
-from functools import lru_cache
 from pathlib import Path
 
 import discord
 import pandas as pd
 from discord import app_commands
 
-from ml.simulator import simulate_group
+from ml.simulator import simulate_ko_from_r16
 
 FIXTURES_PATH = Path(__file__).parent.parent / "ml" / "data" / "wc2026_fixtures.csv"
 
 
-@lru_cache(maxsize=1)
-def _fixtures() -> pd.DataFrame:
-    df = pd.read_csv(FIXTURES_PATH)
-    return df[df["stage"] == "Group Stage"].copy()
-
-
-def _bar(prob: float, width: int = 20) -> str:
+def _bar(prob: float, width: int = 18) -> str:
     filled = round(prob * width)
     return "█" * filled + "░" * (width - filled)
 
 
-def _format_result(group: str, results: dict[str, float]) -> str:
+def _format_result(results: dict[str, float]) -> str:
     lines = [
-        f"## 🎲 Monte Carlo — Groupe {group}",
-        "_Probabilité de qualification (top 2) sur 10 000 simulations_",
+        "## 🎲 Monte Carlo — Vainqueur CdM 2026",
+        "_Probabilité de remporter le titre · 10 000 simulations depuis les 1/8_",
         "",
         "```",
     ]
-    for i, (team, prob) in enumerate(results.items()):
-        qualifier = " ✓" if i < 2 else "  "
-        lines.append(f"{team:<26} {_bar(prob)} {prob:.1%}{qualifier}")
+    for team, prob in results.items():
+        lines.append(f"{team:<26} {_bar(prob)} {prob:.1%}")
     lines += [
         "```",
-        "*✓ = favoris pour la qualification · Tirs au but simulés 50-50*",
+        "*Tirs au but simulés 50-50 · ELO et Poisson mis à jour après chaque match*",
     ]
     return "\n".join(lines)
 
 
 @app_commands.command(
     name="simulate",
-    description="Simulation Monte Carlo des probabilités de qualification (Groupe A–L)",
+    description="Simulation Monte Carlo des chances de remporter la CdM 2026 (depuis les 1/8)",
 )
-@app_commands.describe(groupe="Groupe à simuler (A à L)")
-@app_commands.choices(groupe=[
-    app_commands.Choice(name=f"Groupe {g}", value=g)
-    for g in "ABCDEFGHIJKL"
-])
-async def simulate(interaction: discord.Interaction, groupe: app_commands.Choice[str]) -> None:
+async def simulate(interaction: discord.Interaction) -> None:
     await interaction.response.defer()
 
-    group = groupe.value
-    group_matches = (
-        _fixtures()[_fixtures()["group"] == group]
-        .sort_values("date")
-        .to_dict("records")
-    )
+    fixtures = pd.read_csv(FIXTURES_PATH)
+    result, tba = await asyncio.to_thread(simulate_ko_from_r16, fixtures, 10_000)
 
-    if not group_matches:
-        await interaction.followup.send(f"Aucun match trouvé pour le Groupe {group}.")
+    if result is None:
+        tba_lines = "\n".join(f"• {t}" for t in tba)
+        await interaction.followup.send(
+            f"⚠️ Certains matchs de 1/8 ont des équipes non définies :\n{tba_lines}\n\n"
+            "Complète les fixtures via le dashboard (Page Fixtures) puis relance."
+        )
         return
 
-    results = await asyncio.to_thread(simulate_group, group_matches, 10_000)
-    await interaction.followup.send(_format_result(group, results))
+    await interaction.followup.send(_format_result(result))
 
 
 def setup(tree: app_commands.CommandTree) -> None:

@@ -22,7 +22,7 @@ def _match_probs(home: str, away: str, date: str) -> tuple[float, float, float]:
 def _ko_probs(home: str, away: str) -> tuple[float, float, float]:
     key = (home, away)
     if key not in _ko_probs_cache:
-        _ko_probs_cache[key] = _match_probs(home, away, "2026-07-01")
+        _ko_probs_cache[key] = _match_probs(home, away, "2026-07-10")
     return _ko_probs_cache[key]
 
 
@@ -93,6 +93,59 @@ def _resolve_slot(
 
 
 # ─── Public API ──────────────────────────────────────────────────────────────
+
+def simulate_ko_from_r16(
+    fixtures: pd.DataFrame,
+    n: int = 10_000,
+) -> tuple[dict[str, float] | None, list[str]]:
+    """
+    Monte Carlo simulation of WC 2026 from R16 onwards.
+
+    Uses consecutive-pair bracket: R16 winners pair up for QF, QF winners for SF, etc.
+    This matches the FIFA 2026 bracket structure for rounds R16 and beyond.
+
+    Returns
+    -------
+    (win_probs, tba_list)
+        win_probs : {team: win_probability} sorted descending, or None if any R16 team is TBA
+        tba_list  : list of TBA slot descriptions (empty when simulation succeeded)
+    """
+    r16 = fixtures[fixtures["stage"] == "Round of 16"].sort_values("match_number")
+
+    r16_pairs: list[tuple[str, str]] = []
+    tba_list: list[str] = []
+    for _, row in r16.iterrows():
+        h, a = str(row["home_team"]), str(row["away_team"])
+        if h == "To be announced":
+            tba_list.append(f"#{int(row['match_number'])} domicile")
+        if a == "To be announced":
+            tba_list.append(f"#{int(row['match_number'])} extérieur")
+        r16_pairs.append((h, a))
+
+    if tba_list:
+        return None, tba_list
+
+    win_count: dict[str, int] = defaultdict(int)
+
+    for _ in range(n):
+        current = [_draw_ko(h, a) for h, a in r16_pairs]
+        while len(current) > 1:
+            current = [
+                _draw_ko(current[i], current[i + 1])
+                for i in range(0, len(current), 2)
+            ]
+        win_count[current[0]] += 1
+
+    all_teams = list({t for h, a in r16_pairs for t in (h, a)})
+    return (
+        {
+            team: round(win_count[team] / n, 3)
+            for team in sorted(all_teams, key=lambda t: -win_count[t])
+            if win_count[team] > 0
+        },
+        [],
+    )
+
 
 def simulate_group(group_matches: list[dict], n: int = 10_000) -> dict[str, float]:
     """
