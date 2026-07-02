@@ -145,6 +145,83 @@ def _elo_data() -> list[dict]:
     return sorted(out, key=lambda x: -x["elo"])
 
 
+STAGE_SHORT = {
+    "Group Stage":    "Groupes",
+    "Round of 32":    "R32",
+    "Round of 16":    "R16",
+    "Quarter Finals": "QF",
+    "Semi Finals":    "SF",
+    "Finals":         "Finale",
+}
+STAGE_ORDER = ["Group Stage", "Round of 32", "Round of 16", "Quarter Finals", "Semi Finals", "Finals"]
+CM_LABELS   = {"H": "Dom.", "D": "Nul", "A": "Ext."}
+
+
+def _perf_data() -> dict:
+    # Accuracy curve: one point per resolved match ordered by date
+    with database.get_connection() as conn:
+        rows = conn.execute("""
+            SELECT r.match_date, p.is_correct_result, p.predicted_result, p.actual_result
+            FROM predictions p
+            JOIN match_results r ON r.match_id = p.match_id
+            WHERE p.actual_result IS NOT NULL
+            ORDER BY r.match_date, p.match_id
+        """).fetchall()
+
+    dates, cum_acc, correct = [], [], 0
+    for i, (date, is_ok, _pred, _act) in enumerate(rows):
+        correct += (is_ok or 0)
+        dates.append(date[:10])
+        cum_acc.append(round(correct / (i + 1) * 100, 1))
+
+    # Confusion matrix [predicted][actual] with labels H/D/A
+    cm: dict[tuple[str, str], int] = {}
+    for _, _, pred, actual in rows:
+        key = (pred, actual)
+        cm[key] = cm.get(key, 0) + 1
+
+    lbl = list(CM_LABELS.keys())
+    matrix = [
+        {"label": CM_LABELS[p], "vals": [cm.get((p, a), 0) for a in lbl]}
+        for p in lbl
+    ]
+    col_labels = list(CM_LABELS.values())
+    max_val = max((v for row in matrix for v in row["vals"]), default=1) or 1
+
+    # Per-stage accuracy
+    df = pd.read_csv(FIXTURES_PATH)
+    stage_data = []
+    for stage in STAGE_ORDER:
+        sub = df[df["stage"] == stage]
+        if sub.empty:
+            continue
+        ids = tuple(200_000 + int(mn) for mn in sub["match_number"])
+        placeholders = ",".join("?" * len(ids))
+        with database.get_connection() as conn:
+            r = conn.execute(
+                f"SELECT COUNT(*), SUM(is_correct_result) FROM predictions "
+                f"WHERE match_id IN ({placeholders}) AND actual_result IS NOT NULL",
+                ids,
+            ).fetchone()
+        if r[0] > 0:
+            stage_data.append({
+                "stage": STAGE_SHORT.get(stage, stage),
+                "total": r[0],
+                "correct": r[1] or 0,
+                "rate": round((r[1] or 0) / r[0] * 100, 1),
+            })
+
+    return {
+        "stats":      database.get_stats(),
+        "dates":      dates,
+        "cum_acc":    cum_acc,
+        "matrix":     matrix,
+        "col_labels": col_labels,
+        "max_val":    max_val,
+        "stage_data": stage_data,
+    }
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @router.get("/", response_class=HTMLResponse)
@@ -176,6 +253,12 @@ def elo(request: Request):
         "request": request,
         "teams":   teams,
     })
+
+
+@router.get("/stats", response_class=HTMLResponse)
+def stats(request: Request):
+    data = _perf_data()
+    return templates.TemplateResponse("public/stats.html", {"request": request, **data})
 
 
 @router.get("/api/elo")

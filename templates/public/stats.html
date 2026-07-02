@@ -1,0 +1,243 @@
+{% extends "base.html" %}
+{% set active = "stats" %}
+{% block title %}Performance ML — WC 2026{% endblock %}
+
+{% block content %}
+
+<div class="flex items-center justify-between mb-5">
+  <span class="text-[11px] font-semibold uppercase tracking-widest text-slate-500">Performance du modèle</span>
+  {% if stats.total > 0 %}
+  <div class="flex items-center gap-4 text-[11px] text-slate-500">
+    <span>{{ stats.total }} prédictions résolues</span>
+    <span class="text-slate-700">·</span>
+    <span>baseline aléatoire <span class="font-semibold text-slate-400">33%</span></span>
+  </div>
+  {% endif %}
+</div>
+
+{% if stats.total == 0 %}
+<div class="border border-[#30363d] rounded-lg bg-[#161b22] px-4 py-16 text-center text-slate-600">
+  Aucune prédiction résolue pour l'instant.
+</div>
+{% else %}
+
+{# ── Summary cards ── #}
+<div class="grid grid-cols-3 gap-3 mb-5">
+  <div class="border border-[#30363d] rounded-lg bg-[#161b22] px-4 py-3 text-center">
+    <div class="text-[10px] uppercase tracking-widest text-slate-600 mb-1">Accuracy résultat</div>
+    <div class="text-3xl font-bold tabular-nums text-green-400">{{ stats.result_rate }}%</div>
+    <div class="text-[11px] text-slate-600 mt-0.5">{{ stats.correct_results }} / {{ stats.total }}</div>
+  </div>
+  <div class="border border-[#30363d] rounded-lg bg-[#161b22] px-4 py-3 text-center">
+    <div class="text-[10px] uppercase tracking-widest text-slate-600 mb-1">Score exact</div>
+    <div class="text-3xl font-bold tabular-nums text-blue-400">{{ stats.score_rate }}%</div>
+    <div class="text-[11px] text-slate-600 mt-0.5">{{ stats.correct_scores }} / {{ stats.total }}</div>
+  </div>
+  <div class="border border-[#30363d] rounded-lg bg-[#161b22] px-4 py-3 text-center">
+    <div class="text-[10px] uppercase tracking-widest text-slate-600 mb-1">vs baseline</div>
+    {% set delta = stats.result_rate - 33.3 %}
+    <div class="text-3xl font-bold tabular-nums {% if delta > 0 %}text-amber-400{% else %}text-red-400{% endif %}">
+      {% if delta > 0 %}+{% endif %}{{ "%.1f" | format(delta) }}%
+    </div>
+    <div class="text-[11px] text-slate-600 mt-0.5">au-dessus de 33.3%</div>
+  </div>
+</div>
+
+{# ── Accuracy cumulative chart ── #}
+<div class="border border-[#30363d] rounded-lg bg-[#161b22] p-5 mb-5">
+  <div class="flex items-center justify-between mb-4">
+    <span class="text-[11px] font-semibold uppercase tracking-widest text-slate-500">Accuracy cumulée</span>
+    <div class="flex items-center gap-4 text-[10px] text-slate-600">
+      <span class="flex items-center gap-1.5"><span class="w-3 h-0.5 bg-blue-500 inline-block rounded"></span>Modèle</span>
+      <span class="flex items-center gap-1.5"><span class="w-3 h-0.5 border-t border-dashed border-slate-600 inline-block"></span>Baseline 33%</span>
+      <span class="flex items-center gap-1.5"><span class="w-3 h-0.5 border-t border-dashed border-amber-500/50 inline-block"></span>50%</span>
+    </div>
+  </div>
+  <div class="relative h-56">
+    <canvas id="accChart"></canvas>
+  </div>
+</div>
+
+{# ── Confusion matrix + Stage accuracy ── #}
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+  {# Confusion matrix #}
+  <div class="border border-[#30363d] rounded-lg bg-[#161b22] overflow-hidden">
+    <div class="px-4 py-2.5 border-b border-[#30363d]">
+      <span class="text-[11px] font-semibold uppercase tracking-widest text-slate-500">Matrice de confusion</span>
+      <span class="text-[10px] text-slate-700 ml-2">lignes = prédit · colonnes = réel</span>
+    </div>
+    <div class="p-4">
+      <table class="w-full text-center text-[12px]" id="cmTable">
+        <thead>
+          <tr>
+            <th class="pb-2 text-[10px] text-slate-600 font-medium w-12"></th>
+            {% for col in col_labels %}
+            <th class="pb-2 text-[10px] text-slate-500 font-semibold uppercase tracking-wider">{{ col }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in matrix %}
+          {% set row_i = loop.index0 %}
+          <tr>
+            <td class="py-1 text-[10px] text-slate-500 font-semibold uppercase tracking-wider text-left pr-2">{{ row.label }}</td>
+            {% for val in row.vals %}
+            <td class="py-1">
+              <div class="rounded px-2 py-2 font-bold tabular-nums text-[14px] cm-cell"
+                   data-val="{{ val }}"
+                   data-max="{{ max_val }}"
+                   data-diag="{{ '1' if row_i == loop.index0 else '0' }}">
+                {{ val }}
+              </div>
+            </td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div class="mt-3 text-[10px] text-slate-600">
+        Diagonal = prédictions correctes · cases hors-diagonale = erreurs
+      </div>
+    </div>
+  </div>
+
+  {# Per-stage accuracy #}
+  <div class="border border-[#30363d] rounded-lg bg-[#161b22] overflow-hidden">
+    <div class="px-4 py-2.5 border-b border-[#30363d]">
+      <span class="text-[11px] font-semibold uppercase tracking-widest text-slate-500">Accuracy par phase</span>
+    </div>
+    {% if stage_data %}
+    <div class="p-4 space-y-4">
+      {% for s in stage_data %}
+      <div>
+        <div class="flex items-center justify-between mb-1.5 text-[12px]">
+          <span class="font-medium text-white">{{ s.stage }}</span>
+          <div class="flex items-center gap-2 text-slate-500">
+            <span class="tabular-nums">{{ s.correct }}/{{ s.total }}</span>
+            <span class="font-bold tabular-nums {% if s.rate >= 60 %}text-green-400{% elif s.rate >= 45 %}text-amber-400{% else %}text-slate-400{% endif %}">
+              {{ s.rate }}%
+            </span>
+          </div>
+        </div>
+        <div class="h-1.5 bg-[#21262d] rounded-full overflow-hidden flex">
+          <div class="h-full rounded-full stage-bar {% if s.rate >= 60 %}bg-green-500{% elif s.rate >= 45 %}bg-amber-500{% else %}bg-slate-500{% endif %}"
+               data-rate="{{ s.rate }}"></div>
+          <div class="h-full bg-[#21262d]"></div>
+        </div>
+      </div>
+      {% endfor %}
+      <div class="pt-1 flex items-center gap-2 text-[10px] text-slate-700">
+        <div class="w-2 h-px border-t border-dashed border-slate-700 flex-none" style="width:33%"></div>
+        <span class="shrink-0">33% baseline</span>
+      </div>
+    </div>
+    {% else %}
+    <div class="px-4 py-8 text-center text-[12px] text-slate-600">Pas encore de données par phase.</div>
+    {% endif %}
+  </div>
+
+</div>
+
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+{% if stats.total > 0 %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+<script>
+// ── Accuracy curve ──────────────────────────────────────────────────
+const dates   = {{ dates | tojson }};
+const cumAcc  = {{ cum_acc | tojson }};
+
+new Chart(document.getElementById('accChart').getContext('2d'), {
+  type: 'line',
+  data: {
+    labels: dates,
+    datasets: [
+      {
+        data: cumAcc,
+        borderColor: '#3b82f6',
+        backgroundColor: 'rgba(59,130,246,0.08)',
+        borderWidth: 2,
+        pointRadius: cumAcc.length > 30 ? 0 : 3,
+        pointHoverRadius: 4,
+        fill: true,
+        tension: 0.3,
+        label: 'Accuracy cumulée',
+      },
+      {
+        data: dates.map(() => 33.3),
+        borderColor: 'rgba(100,116,139,0.4)',
+        borderWidth: 1,
+        borderDash: [4, 4],
+        pointRadius: 0,
+        fill: false,
+        label: 'Baseline 33%',
+      },
+      {
+        data: dates.map(() => 50),
+        borderColor: 'rgba(245,158,11,0.25)',
+        borderWidth: 1,
+        borderDash: [4, 4],
+        pointRadius: 0,
+        fill: false,
+        label: '50%',
+      },
+    ]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          label: ctx => ctx.datasetIndex === 0 ? ` ${ctx.raw}%` : null,
+          title: ctx => `Match ${ctx[0].dataIndex + 1} · ${ctx[0].label}`,
+        },
+        filter: item => item.datasetIndex === 0,
+      }
+    },
+    scales: {
+      x: {
+        ticks: { maxTicksLimit: 8, color: '#6b7280', font: { size: 10 } },
+        grid: { color: 'rgba(255,255,255,0.04)' },
+      },
+      y: {
+        min: 0, max: 100,
+        ticks: { callback: v => v + '%', color: '#6b7280', font: { size: 10 }, stepSize: 25 },
+        grid: { color: 'rgba(255,255,255,0.04)' },
+      }
+    }
+  }
+});
+
+// ── Confusion matrix heatmap ─────────────────────────────────────────
+document.querySelectorAll('.cm-cell').forEach(el => {
+  const val  = +el.dataset.val;
+  const max  = +el.dataset.max;
+  const diag = el.dataset.diag === '1';
+  if (val === 0) {
+    el.style.color = '#374151';
+    return;
+  }
+  const alpha = Math.max(0.15, val / max);
+  if (diag) {
+    el.style.backgroundColor = `rgba(34,197,94,${alpha * 0.35})`;
+    el.style.color = val > 0 ? `rgba(134,239,172,${0.5 + alpha * 0.5})` : '#374151';
+  } else {
+    el.style.backgroundColor = `rgba(239,68,68,${alpha * 0.3})`;
+    el.style.color = `rgba(252,165,165,${0.5 + alpha * 0.5})`;
+  }
+});
+
+// ── Stage accuracy bars ──────────────────────────────────────────────
+document.querySelectorAll('.stage-bar').forEach(el => {
+  el.style.width = el.dataset.rate + '%';
+});
+</script>
+{% endif %}
+{% endblock %}
