@@ -1,4 +1,5 @@
-import sys, json
+import sys
+import json
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -83,10 +84,44 @@ c1.metric("Total résolu", stats["total"])
 c2.metric("Corrects H/D/A", stats["correct_results"])
 c3.metric("Accuracy globale", f"{stats['result_rate']}%")
 
-if stats["by_competition"]:
-    comp_df = pd.DataFrame([
-        {"Compétition": k, "Total": v["total"],
-         "Corrects": v["correct_results"], "Accuracy": f"{v['rate']}%"}
-        for k, v in stats["by_competition"].items()
-    ])
-    st.dataframe(comp_df, use_container_width=True, hide_index=True)
+# ── Accuracy par phase ────────────────────────────────────────────────────────
+FIXTURES_PATH = Path(__file__).parent.parent / "ml" / "data" / "wc2026_fixtures.csv"
+STAGE_ORDER = ["Group Stage", "Round of 32", "Round of 16", "Quarter Finals", "Semi Finals", "Finals"]
+
+@st.cache_data(ttl=30)
+def _accuracy_by_phase() -> pd.DataFrame:
+    fixtures = pd.read_csv(FIXTURES_PATH)[["match_number", "stage"]]
+    with database.get_connection() as conn:
+        rows = conn.execute("""
+            SELECT match_id, is_correct_result
+            FROM predictions
+            WHERE actual_result IS NOT NULL
+        """).fetchall()
+    if not rows:
+        return pd.DataFrame()
+    pred_df = pd.DataFrame(rows, columns=["match_id", "is_correct_result"])
+    pred_df["match_number"] = pred_df["match_id"] - 200_000
+    merged = pred_df.merge(fixtures, on="match_number", how="left")
+    merged["stage"] = merged["stage"].fillna("Unknown")
+    grouped = (
+        merged.groupby("stage")
+        .agg(total=("is_correct_result", "count"), correct=("is_correct_result", "sum"))
+        .reset_index()
+    )
+    grouped["accuracy"] = (grouped["correct"] / grouped["total"] * 100).round(1)
+    grouped["Phase"] = grouped["stage"]
+    # Preserve stage order
+    cat = pd.Categorical(grouped["Phase"], categories=STAGE_ORDER, ordered=True)
+    grouped["Phase"] = cat
+    return grouped.sort_values("Phase")[["Phase", "total", "correct", "accuracy"]].rename(
+        columns={"total": "Matchs", "correct": "Corrects", "accuracy": "Accuracy (%)"}
+    )
+
+phase_df = _accuracy_by_phase()
+if not phase_df.empty:
+    st.subheader("Accuracy par phase")
+    st.dataframe(
+        phase_df.style.format({"Accuracy (%)": "{:.1f}%"}),
+        use_container_width=True,
+        hide_index=True,
+    )
