@@ -45,7 +45,9 @@ def _name_map() -> dict[str, str]:
 
 @lru_cache(maxsize=1)
 def _model():
-    with open(MODEL_PATH, "rb") as f:
+    import warnings
+    with warnings.catch_warnings(), open(MODEL_PATH, "rb") as f:
+        warnings.filterwarnings("ignore", category=UserWarning, module="xgboost")
         return pickle.load(f)
 
 

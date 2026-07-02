@@ -42,13 +42,14 @@ def _apply_score(match_number: int, home_score: int, away_score: int) -> str:
     home_team  = r["home_team"]
     away_team  = r["away_team"]
     match_date = r["date"]
-    group      = r["group"]
+    group      = r["group"] if pd.notna(r.get("group")) else None
 
     database.save_match_result(match_id, home_team, away_team, home_score, away_score, group, match_date)
     database.resolve_prediction(match_id, home_score, away_score)
 
     wc_elo_path = _PERSISTENT_DIR / "wc_elo_updates.csv"
     already_updated = False
+    
     if wc_elo_path.exists() and wc_elo_path.stat().st_size > 0:
         existing = pd.read_csv(wc_elo_path)
         already_updated = (

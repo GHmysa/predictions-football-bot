@@ -1,15 +1,16 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="fr" class="h-full">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}WC 2026 Predictions{% endblock %}</title>
+  <title>{% block title %}WC 2026{% endblock %}</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
       theme: {
         extend: {
-          colors: { wc: '#f59e0b' }
+          fontFamily: { sans: ['Inter', 'sans-serif'] },
+          colors: { accent: '#f59e0b' }
         }
       }
     }
@@ -18,31 +19,25 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen" style="font-family: 'Inter', sans-serif;">
+<body class="bg-[#0d1117] text-slate-100 min-h-full text-sm" style="font-family:'Inter',sans-serif;">
 
-  <nav class="bg-slate-900 border-b border-slate-800 sticky top-0 z-50">
-    <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-      <a href="/" class="flex items-center gap-2 font-bold text-lg">
-        <span class="text-2xl">⚽</span>
-        <span class="text-white">WC <span class="text-amber-400">2026</span></span>
-        <span class="hidden sm:block text-slate-500 text-sm font-normal ml-2">ML Predictions</span>
+  <header class="bg-[#161b22] border-b border-[#30363d] sticky top-0 z-50">
+    <div class="max-w-5xl mx-auto px-4 h-12 flex items-center justify-between gap-6">
+      <a href="/" class="flex items-center gap-2 shrink-0">
+        <span class="font-bold text-white tracking-tight">WC<span class="text-amber-400">2026</span></span>
       </a>
-      <div class="flex items-center gap-1 sm:gap-4 text-sm">
-        <a href="/" class="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors {% if active == 'home' %}text-white bg-slate-800{% endif %}">Accueil</a>
-        <a href="/bracket" class="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors {% if active == 'bracket' %}text-white bg-slate-800{% endif %}">Bracket</a>
-        <a href="/elo" class="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors {% if active == 'elo' %}text-white bg-slate-800{% endif %}">ELO</a>
-        <a href="/admin" class="ml-2 px-3 py-1.5 rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-colors text-xs font-medium border border-amber-500/20">Admin</a>
-      </div>
+      <nav class="flex items-center gap-1 text-xs font-medium">
+        <a href="/" class="px-3 py-1.5 rounded {% if active == 'home' %}bg-[#21262d] text-white{% else %}text-slate-400 hover:text-white hover:bg-[#21262d]{% endif %} transition-colors">Prédictions</a>
+        <a href="/bracket" class="px-3 py-1.5 rounded {% if active == 'bracket' %}bg-[#21262d] text-white{% else %}text-slate-400 hover:text-white hover:bg-[#21262d]{% endif %} transition-colors">Bracket</a>
+        <a href="/elo" class="px-3 py-1.5 rounded {% if active == 'elo' %}bg-[#21262d] text-white{% else %}text-slate-400 hover:text-white hover:bg-[#21262d]{% endif %} transition-colors">ELO</a>
+      </nav>
+      <a href="/admin" class="text-xs text-slate-500 hover:text-amber-400 transition-colors shrink-0">Admin</a>
     </div>
-  </nav>
+  </header>
 
-  <main class="max-w-6xl mx-auto px-4 py-8">
+  <main class="max-w-5xl mx-auto px-4 py-6">
     {% block content %}{% endblock %}
   </main>
-
-  <footer class="border-t border-slate-800 mt-16 py-6 text-center text-slate-600 text-sm">
-    WC 2026 · Modèle ML entraîné sur 150 ans de football international · Données ELO en temps réel
-  </footer>
 
   {% block scripts %}{% endblock %}
 </body>

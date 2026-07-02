@@ -6,6 +6,8 @@ import secrets
 from pathlib import Path
 
 import pandas as pd
+from urllib.parse import quote
+
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -98,7 +100,7 @@ def post_score(
         _apply_score(match_number, home_score, away_score)
         return RedirectResponse("/admin/scores?success=Score+enregistré", status_code=303)
     except Exception as e:
-        return RedirectResponse(f"/admin/scores?error={e}", status_code=303)
+        return RedirectResponse(f"/admin/scores?error={quote(str(e))}", status_code=303)
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────

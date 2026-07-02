@@ -1,26 +1,17 @@
-/* Minimal custom additions to Tailwind — keep this small */
-
-/* Smooth scrolling */
 html { scroll-behavior: smooth; }
 
-/* Custom scrollbar */
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: #0f172a; }
-::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #475569; }
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: #0d1117; }
+::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #484f58; }
 
-/* Progress bar animation */
-@keyframes grow-bar {
-  from { width: 0 !important; }
-}
-[style*="width"] {
-  animation: grow-bar 0.6s ease-out;
-}
-
-/* Table hover rows */
-tr:hover td { background-color: rgba(255, 255, 255, 0.03); }
-
-/* Form inputs — remove number spinners */
+/* Remove number input spinners */
 input[type=number]::-webkit-inner-spin-button,
-input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-input[type=number] { -moz-appearance: textfield; }
+input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; appearance: none; margin: 0; }
+input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+
+/* Tabular numbers for scores */
+.tabular-nums { font-variant-numeric: tabular-nums; }
+
+/* Tri-color probability bar segments — no animation gap */
+.prob-bar { display: flex; height: 4px; border-radius: 2px; overflow: hidden; }

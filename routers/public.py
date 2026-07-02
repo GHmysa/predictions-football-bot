@@ -63,8 +63,8 @@ def _upcoming_matches(n: int = 8) -> list[dict]:
                 "away":         str(m["away_team"]),
                 "stage":        KO_LABEL.get(str(m["stage"]), str(m["stage"])),
                 "ph": ph, "pd": pd_, "pa": pa,
-                "score_home": r.get("predicted_home_goals", "?"),
-                "score_away": r.get("predicted_away_goals", "?"),
+                "score_home": r.get("predicted_score_home", "?"),
+                "score_away": r.get("predicted_score_away", "?"),
                 "prediction": r["prediction"],
             })
         except Exception:

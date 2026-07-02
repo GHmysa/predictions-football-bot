@@ -1,59 +1,60 @@
 {% extends "base.html" %}
 {% set active = "bracket" %}
-
 {% block title %}Bracket KO — WC 2026{% endblock %}
 
 {% block content %}
 
-<div class="mb-8">
-  <h1 class="text-3xl font-extrabold text-white mb-2">Bracket <span class="text-amber-400">KO</span></h1>
-  <p class="text-slate-400">Phases à élimination directe de la Coupe du Monde 2026.</p>
+<div class="flex items-center justify-between mb-5">
+  <span class="text-[11px] font-semibold uppercase tracking-widest text-slate-500">Bracket — Phases éliminatoires</span>
 </div>
 
 {% if stages %}
   {% for stage in stages %}
-  <div class="mb-10">
-    <h2 class="text-sm font-semibold text-amber-400 uppercase tracking-widest mb-4 flex items-center gap-3">
-      <span>{{ stage.label }}</span>
-      <div class="flex-1 h-px bg-amber-400/20"></div>
-    </h2>
+  <div class="mb-6">
+    <div class="flex items-center gap-3 mb-2">
+      <span class="text-[11px] font-semibold uppercase tracking-widest text-amber-400">{{ stage.label }}</span>
+      <div class="flex-1 h-px bg-[#30363d]"></div>
+      <span class="text-[11px] text-slate-600">{{ stage.matches | length }} match{{ 'es' if stage.matches | length > 1 else '' }}</span>
+    </div>
 
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+    <div class="border border-[#30363d] rounded-lg overflow-hidden bg-[#161b22]">
       {% for m in stage.matches %}
-      <div class="bg-slate-900 rounded-xl border {% if m.played %}border-green-800/40{% elif m.tba %}border-slate-800/60{% else %}border-slate-800{% endif %} overflow-hidden">
+      <div class="border-b border-[#21262d] last:border-0">
 
-        {# Played match #}
         {% if m.played %}
-        <div class="flex items-center">
-          <div class="flex-1 px-4 py-3 {% if m.home_won %}bg-green-900/20{% endif %}">
-            <div class="font-semibold text-sm {% if m.home_won %}text-white{% else %}text-slate-400{% endif %}">{{ m.home }}</div>
+        {# Played match: show real score #}
+        <div class="px-4 py-3 grid items-center gap-2" style="grid-template-columns: 1fr auto 1fr auto">
+          <div class="flex items-center justify-end gap-2">
+            {% if m.home_won %}<span class="w-1 h-4 rounded-full bg-green-500 shrink-0"></span>{% endif %}
+            <span class="font-{% if m.home_won %}semibold text-white{% else %}normal text-slate-400{% endif %} truncate text-right text-[13px]">{{ m.home }}</span>
           </div>
-          <div class="px-3 text-center shrink-0">
-            <div class="font-bold text-lg {% if m.home_won %}text-green-400{% elif m.draw %}text-slate-300{% else %}text-orange-400{% endif %}">
-              {{ m.hs }}–{{ m.as_ }}
-            </div>
-            {% if m.draw %}
-            <div class="text-xs text-slate-600">pen.</div>
-            {% endif %}
+          <div class="text-center w-16">
+            <span class="font-bold text-[15px] tabular-nums {% if m.home_won %}text-white{% elif m.draw %}text-slate-300{% else %}text-white{% endif %}">{{ m.hs }}–{{ m.as_ }}</span>
+            {% if m.draw %}<div class="text-[10px] text-slate-600">pen.</div>{% endif %}
           </div>
-          <div class="flex-1 px-4 py-3 text-right {% if not m.home_won and not m.draw %}bg-orange-900/20{% endif %}">
-            <div class="font-semibold text-sm {% if not m.home_won and not m.draw %}text-white{% else %}text-slate-400{% endif %}">{{ m.away }}</div>
+          <div class="flex items-center gap-2">
+            <span class="font-{% if not m.home_won and not m.draw %}semibold text-white{% else %}normal text-slate-400{% endif %} truncate text-[13px]">{{ m.away }}</span>
+            {% if not m.home_won and not m.draw %}<span class="w-1 h-4 rounded-full bg-green-500 shrink-0"></span>{% endif %}
           </div>
+          <span class="text-[11px] text-slate-600 text-right hidden sm:block">{{ m.date }}</span>
         </div>
 
-        {# TBA match #}
         {% elif m.tba %}
-        <div class="px-4 py-3 flex items-center justify-between gap-2">
-          <span class="text-slate-600 text-sm italic">À définir</span>
-          <span class="text-xs text-slate-700">{{ m.date }}</span>
+        {# TBA match #}
+        <div class="px-4 py-3 flex items-center justify-between gap-3">
+          <span class="text-slate-600 text-[12px] italic">À définir</span>
+          <span class="text-[11px] text-slate-700">{{ m.date }}</span>
         </div>
 
-        {# Upcoming match #}
         {% else %}
-        <div class="flex items-center justify-between px-4 py-3">
-          <div class="font-medium text-white text-sm truncate flex-1">{{ m.home }}</div>
-          <div class="text-xs text-slate-500 px-2 shrink-0">{{ m.date }}</div>
-          <div class="font-medium text-white text-sm truncate flex-1 text-right">{{ m.away }}</div>
+        {# Upcoming match #}
+        <div class="px-4 py-3 grid items-center gap-2" style="grid-template-columns: 1fr auto 1fr auto">
+          <span class="font-medium text-white truncate text-right text-[13px]">{{ m.home }}</span>
+          <div class="text-center w-16">
+            <span class="text-slate-600 font-mono text-[13px]">vs</span>
+          </div>
+          <span class="font-medium text-white truncate text-[13px]">{{ m.away }}</span>
+          <span class="text-[11px] text-slate-600 text-right hidden sm:block">{{ m.date }}</span>
         </div>
         {% endif %}
 
@@ -63,9 +64,8 @@
   </div>
   {% endfor %}
 {% else %}
-<div class="text-center py-20 text-slate-500">
-  <div class="text-6xl mb-4">🏆</div>
-  <p class="text-lg">Les phases KO ne sont pas encore définies.</p>
+<div class="text-center py-20 text-slate-600">
+  <p>Les phases éliminatoires ne sont pas encore définies.</p>
 </div>
 {% endif %}
 
