@@ -146,8 +146,8 @@
 {% block scripts %}
 {% if stats.total > 0 %}
 <div id="perf-data"
-     data-dates="{{ dates | tojson | e }}"
-     data-cum-acc="{{ cum_acc | tojson | e }}"
+     data-dates="{{ dates | tojson | forceescape }}"
+     data-cum-acc="{{ cum_acc | tojson | forceescape }}"
      hidden></div>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
 <script>
