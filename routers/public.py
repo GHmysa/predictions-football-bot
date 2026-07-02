@@ -222,6 +222,98 @@ def _perf_data() -> dict:
     }
 
 
+RESULT_FR = {"H": "Dom.", "D": "Nul", "A": "Ext."}
+
+
+def _standings_data() -> list[dict]:
+    df    = pd.read_csv(FIXTURES_PATH)
+    gs    = df[df["stage"] == "Group Stage"]
+
+    # Init all teams from fixtures
+    groups: dict[str, dict[str, dict]] = {}
+    for grp in sorted(gs["group"].dropna().unique()):
+        sub   = gs[gs["group"] == grp]
+        teams = sorted({
+            t for t in sub["home_team"].tolist() + sub["away_team"].tolist()
+            if t != "To be announced"
+        })
+        groups[grp] = {
+            t: {"team": t, "p": 0, "w": 0, "d": 0, "l": 0,
+                "gf": 0, "ga": 0, "pts": 0}
+            for t in teams
+        }
+
+    # Fill from DB results
+    with database.get_connection() as conn:
+        rows = conn.execute(
+            "SELECT home_team, away_team, home_score, away_score, match_group "
+            "FROM match_results WHERE match_group IS NOT NULL"
+        ).fetchall()
+
+    for home, away, hs, as_, grp in rows:
+        if grp not in groups:
+            continue
+        for t in (home, away):
+            if t not in groups[grp]:
+                groups[grp][t] = {"team": t, "p": 0, "w": 0, "d": 0, "l": 0,
+                                   "gf": 0, "ga": 0, "pts": 0}
+        h, a = groups[grp][home], groups[grp][away]
+        h["p"] += 1;  a["p"] += 1
+        h["gf"] += hs; h["ga"] += as_
+        a["gf"] += as_; a["ga"] += hs
+        if hs > as_:
+            h["w"] += 1; h["pts"] += 3; a["l"] += 1
+        elif hs < as_:
+            a["w"] += 1; a["pts"] += 3; h["l"] += 1
+        else:
+            h["d"] += 1; h["pts"] += 1; a["d"] += 1; a["pts"] += 1
+
+    result = []
+    for grp in sorted(groups.keys()):
+        teams = list(groups[grp].values())
+        for t in teams:
+            t["gd"] = t["gf"] - t["ga"]
+            t["gd_str"] = f"+{t['gd']}" if t["gd"] > 0 else str(t["gd"])
+        teams.sort(key=lambda x: (-x["pts"], -x["gd"], -x["gf"]))
+        for i, t in enumerate(teams):
+            t["rank"] = i + 1
+            t["q"] = i < 2   # top 2 advance (simplified)
+        result.append({"group": grp, "teams": teams})
+
+    return result
+
+
+def _history_data() -> dict:
+    with database.get_connection() as conn:
+        resolved = conn.execute("""
+            SELECT p.home_team, p.away_team,
+                   p.predicted_result, p.actual_result,
+                   p.is_correct_result, p.is_correct_score,
+                   r.home_score, r.away_score, r.match_date, r.match_group
+            FROM predictions p
+            JOIN match_results r ON r.match_id = p.match_id
+            WHERE p.actual_result IS NOT NULL
+            ORDER BY r.match_date DESC, r.match_id DESC
+        """).fetchall()
+
+    rows = []
+    for home, away, pred, actual, ok_r, ok_s, hs, as_, date, grp in resolved:
+        rows.append({
+            "home":     home,
+            "away":     away,
+            "pred":     RESULT_FR.get(pred, pred),
+            "pred_raw": pred,
+            "actual":   RESULT_FR.get(actual, actual),
+            "actual_raw": actual,
+            "score":    f"{hs}–{as_}",
+            "ok":       bool(ok_r),
+            "ok_score": bool(ok_s),
+            "date":     _fmt_date(date),
+            "group":    grp or "",
+        })
+    return {"rows": rows, "stats": database.get_stats()}
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @router.get("/", response_class=HTMLResponse)
@@ -252,6 +344,23 @@ def elo(request: Request):
     return templates.TemplateResponse("public/elo.html", {
         "request": request,
         "teams":   teams,
+    })
+
+
+@router.get("/standings", response_class=HTMLResponse)
+def standings(request: Request):
+    return templates.TemplateResponse("public/standings.html", {
+        "request": request,
+        "groups":  _standings_data(),
+    })
+
+
+@router.get("/history", response_class=HTMLResponse)
+def history(request: Request):
+    data = _history_data()
+    return templates.TemplateResponse("public/history.html", {
+        "request": request,
+        **data,
     })
 
 

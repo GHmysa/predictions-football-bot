@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% set active = "standings" %}
+{% block title %}Classements — WC 2026{% endblock %}
+
+{% block content %}
+
+<div class="flex items-center justify-between mb-5">
+  <span class="text-[11px] font-semibold uppercase tracking-widest text-slate-500">Phase de groupes — Classements</span>
+  <div class="flex items-center gap-3 text-[10px] text-slate-600">
+    <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-green-500/60 inline-block"></span>Qualifié (top 2)</span>
+  </div>
+</div>
+
+{% if groups %}
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+  {% for g in groups %}
+  <div class="border border-[#30363d] rounded-lg bg-[#161b22] overflow-hidden">
+
+    {# Group header #}
+    <div class="px-3 py-2 border-b border-[#30363d] flex items-center justify-between">
+      <span class="font-bold text-amber-400 text-sm">Groupe {{ g.group }}</span>
+      <span class="text-[10px] text-slate-600">
+        {% set played = g.teams | sum(attribute='p') // 2 %}
+        {{ played }}/{% set total = (g.teams | length * (g.teams | length - 1)) // 2 %}{{ total }} matchs
+      </span>
+    </div>
+
+    {# Standings table #}
+    <table class="w-full text-[11px]">
+      <thead>
+        <tr class="border-b border-[#21262d]">
+          <th class="px-3 py-1.5 text-left text-[10px] text-slate-600 font-medium">Équipe</th>
+          <th class="px-1 py-1.5 text-center text-[10px] text-slate-600 font-medium w-5">J</th>
+          <th class="px-1 py-1.5 text-center text-[10px] text-slate-600 font-medium w-5">G</th>
+          <th class="px-1 py-1.5 text-center text-[10px] text-slate-600 font-medium w-5">N</th>
+          <th class="px-1 py-1.5 text-center text-[10px] text-slate-600 font-medium w-5">P</th>
+          <th class="px-1 py-1.5 text-center text-[10px] text-slate-600 font-medium w-7">Dif</th>
+          <th class="px-2 py-1.5 text-center text-[10px] text-slate-500 font-semibold w-7">Pts</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in g.teams %}
+        <tr class="border-b border-[#21262d] last:border-0 {% if t.q %}bg-green-950/20{% endif %}">
+          <td class="px-3 py-2 flex items-center gap-1.5">
+            {% if t.q %}
+            <span class="w-1 h-3 rounded-full bg-green-500/60 shrink-0"></span>
+            {% else %}
+            <span class="w-1 h-3 shrink-0"></span>
+            {% endif %}
+            <span class="font-medium {% if t.q %}text-white{% else %}text-slate-400{% endif %} truncate max-w-[90px]">{{ t.team }}</span>
+          </td>
+          <td class="px-1 py-2 text-center tabular-nums text-slate-500">{{ t.p }}</td>
+          <td class="px-1 py-2 text-center tabular-nums {% if t.w > 0 %}text-green-400{% else %}text-slate-600{% endif %}">{{ t.w }}</td>
+          <td class="px-1 py-2 text-center tabular-nums text-slate-500">{{ t.d }}</td>
+          <td class="px-1 py-2 text-center tabular-nums {% if t.l > 0 %}text-red-400{% else %}text-slate-600{% endif %}">{{ t.l }}</td>
+          <td class="px-1 py-2 text-center tabular-nums {% if t.gd > 0 %}text-green-400{% elif t.gd < 0 %}text-red-400{% else %}text-slate-500{% endif %}">
+            {{ t.gd_str }}
+          </td>
+          <td class="px-2 py-2 text-center font-bold tabular-nums {% if t.q %}text-white{% else %}text-slate-400{% endif %}">{{ t.pts }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endfor %}
+</div>
+
+{% else %}
+<div class="border border-[#30363d] rounded-lg bg-[#161b22] px-4 py-16 text-center text-slate-600">
+  Aucun résultat de groupe enregistré.
+</div>
+{% endif %}
+
+{% endblock %}
