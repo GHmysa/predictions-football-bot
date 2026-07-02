@@ -1,33 +1,31 @@
 {% extends "base.html" %}
-
-{% block title %}Métriques ML — Admin WC 2026{% endblock %}
+{% block title %}Métriques — Admin{% endblock %}
 
 {% block content %}
 
-<div class="flex items-center justify-between mb-8 flex-wrap gap-4">
-  <div>
-    <a href="/admin" class="text-xs text-slate-500 hover:text-slate-300 transition-colors">← Admin</a>
-    <h1 class="text-3xl font-extrabold text-white mt-1">Métriques <span class="text-amber-400">ML</span></h1>
+<div class="flex items-center justify-between mb-5">
+  <div class="flex items-center gap-3">
+    <a href="/admin" class="text-[11px] text-slate-500 hover:text-slate-300 transition-colors">Admin</a>
+    <span class="text-[11px] text-slate-700">/</span>
+    <span class="text-[11px] font-semibold uppercase tracking-widest text-amber-400">Métriques ML</span>
   </div>
 </div>
 
 {# XGBoost metrics #}
 {% if metrics %}
-<div class="mb-10">
-  <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-widest mb-4">XGBoost — Évaluation test</h2>
-  <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+<div class="border border-[#30363d] rounded-lg bg-[#161b22] overflow-hidden mb-6">
+  <div class="px-4 py-2.5 border-b border-[#30363d]">
+    <span class="text-[11px] font-semibold uppercase tracking-widest text-slate-500">XGBoost — Évaluation test</span>
+  </div>
+  <div class="grid grid-cols-2 sm:grid-cols-4 divide-x divide-y divide-[#30363d]" style="grid-auto-rows: 1fr">
     {% for key, val in metrics.items() %}
-    <div class="bg-slate-900 rounded-2xl border border-slate-800 p-5 text-center">
-      <div class="text-xs text-slate-500 mb-2 uppercase tracking-wide">{{ key.replace('_', ' ') }}</div>
-      <div class="text-2xl font-bold
+    <div class="px-4 py-3 text-center">
+      <div class="text-[10px] uppercase tracking-widest text-slate-600 mb-1">{{ key.replace('_', ' ') }}</div>
+      <div class="font-mono font-bold text-base
         {% if 'accuracy' in key.lower() or 'f1' in key.lower() %}text-green-400
         {% elif 'loss' in key.lower() %}text-red-400
         {% else %}text-blue-400{% endif %}">
-        {% if val is number %}
-          {{ "%.4f" | format(val) if val < 1 else "%.1f" | format(val) }}
-        {% else %}
-          {{ val }}
-        {% endif %}
+        {{ "%.4f" | format(val) if val is number and val < 1 else val }}
       </div>
     </div>
     {% endfor %}
@@ -35,60 +33,61 @@
 </div>
 {% endif %}
 
-{# Poisson — top attacks and defenses #}
-<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+{# Poisson params #}
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 
-  {# Top attacks #}
-  <div class="bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden">
-    <div class="px-5 py-4 border-b border-slate-800">
-      <h2 class="text-base font-bold text-white">⚡ Top attaques <span class="text-amber-400">(Poisson)</span></h2>
-      <p class="text-xs text-slate-500 mt-0.5">Paramètre d'attaque Dixon-Coles — plus élevé = plus offensif</p>
+  <div class="border border-[#30363d] rounded-lg bg-[#161b22] overflow-hidden">
+    <div class="px-4 py-2.5 border-b border-[#30363d]">
+      <span class="text-[11px] font-semibold uppercase tracking-widest text-slate-500">Top attaques</span>
+      <span class="text-[10px] text-slate-700 ml-2">param. Dixon-Coles</span>
     </div>
-    <div class="divide-y divide-slate-800/60">
-      {% for team, val in attacks %}
-      <div class="flex items-center justify-between px-5 py-3">
-        <div class="flex items-center gap-3">
-          <span class="text-xs text-slate-600 font-mono w-5">{{ loop.index }}</span>
-          <span class="font-medium text-white text-sm">{{ team }}</span>
-        </div>
-        <div class="flex items-center gap-3">
-          <div class="w-24 bg-slate-800 rounded-full h-1.5 overflow-hidden hidden sm:block">
-            {% set max_att = attacks[0][1] %}
-            <div class="bg-amber-400 h-full rounded-full" style="width: {{ (val / max_att * 100) | round | int }}%"></div>
-          </div>
-          <span class="font-mono font-bold text-amber-400 text-sm w-12 text-right">{{ val }}</span>
-        </div>
+    {% set max_att = attacks[0][1] if attacks else 1 %}
+    {% for team, val in attacks %}
+    <div class="border-b border-[#21262d] last:border-0 px-4 py-2.5 flex items-center gap-3">
+      <span class="text-[10px] text-slate-700 font-mono w-4 tabular-nums">{{ loop.index }}</span>
+      <span class="flex-1 text-[13px] font-medium text-white">{{ team }}</span>
+      <div class="w-20 bg-[#21262d] rounded-full h-1 overflow-hidden hidden sm:block">
+        <div class="bg-amber-400 h-full rounded-full bar-att" data-val="{{ val }}" data-max="{{ max_att }}"></div>
       </div>
-      {% endfor %}
+      <span class="font-mono font-bold text-[12px] text-amber-400 w-10 text-right tabular-nums">{{ val }}</span>
     </div>
+    {% endfor %}
   </div>
 
-  {# Best defenses (lowest = best) #}
-  <div class="bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden">
-    <div class="px-5 py-4 border-b border-slate-800">
-      <h2 class="text-base font-bold text-white">🛡️ Meilleures défenses <span class="text-blue-400">(Poisson)</span></h2>
-      <p class="text-xs text-slate-500 mt-0.5">Paramètre de défense Dixon-Coles — plus bas = moins de buts encaissés</p>
+  <div class="border border-[#30363d] rounded-lg bg-[#161b22] overflow-hidden">
+    <div class="px-4 py-2.5 border-b border-[#30363d]">
+      <span class="text-[11px] font-semibold uppercase tracking-widest text-slate-500">Meilleures défenses</span>
+      <span class="text-[10px] text-slate-700 ml-2">plus bas = meilleur</span>
     </div>
-    <div class="divide-y divide-slate-800/60">
-      {% for team, val in defenses %}
-      <div class="flex items-center justify-between px-5 py-3">
-        <div class="flex items-center gap-3">
-          <span class="text-xs text-slate-600 font-mono w-5">{{ loop.index }}</span>
-          <span class="font-medium text-white text-sm">{{ team }}</span>
-        </div>
-        <div class="flex items-center gap-3">
-          <div class="w-24 bg-slate-800 rounded-full h-1.5 overflow-hidden hidden sm:block">
-            {% set min_def = defenses[0][1] %}
-            {% set max_def = defenses[-1][1] %}
-            <div class="bg-blue-500 h-full rounded-full" style="width: {{ ((max_def - val) / (max_def - min_def) * 100) | round | int }}%"></div>
-          </div>
-          <span class="font-mono font-bold text-blue-400 text-sm w-12 text-right">{{ val }}</span>
-        </div>
+    {% if defenses %}
+    {% set min_def = defenses[0][1] %}
+    {% set max_def = defenses[-1][1] %}
+    {% for team, val in defenses %}
+    <div class="border-b border-[#21262d] last:border-0 px-4 py-2.5 flex items-center gap-3">
+      <span class="text-[10px] text-slate-700 font-mono w-4 tabular-nums">{{ loop.index }}</span>
+      <span class="flex-1 text-[13px] font-medium text-white">{{ team }}</span>
+      <div class="w-20 bg-[#21262d] rounded-full h-1 overflow-hidden hidden sm:block">
+        <div class="bg-blue-500 h-full rounded-full bar-def"
+             data-val="{{ val }}" data-min="{{ min_def }}" data-max="{{ max_def }}"></div>
       </div>
-      {% endfor %}
+      <span class="font-mono font-bold text-[12px] text-blue-400 w-10 text-right tabular-nums">{{ val }}</span>
     </div>
+    {% endfor %}
+    {% endif %}
   </div>
 
 </div>
 
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('.bar-att').forEach(el => {
+  el.style.width = (el.dataset.val / el.dataset.max * 100) + '%';
+});
+document.querySelectorAll('.bar-def').forEach(el => {
+  const pct = (el.dataset.max - el.dataset.val) / (el.dataset.max - el.dataset.min) * 100;
+  el.style.width = pct + '%';
+});
+</script>
 {% endblock %}

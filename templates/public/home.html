@@ -73,10 +73,11 @@
       {# Probability strip #}
       <div class="px-4 pb-2.5 flex items-center gap-2">
         <span class="text-[11px] text-blue-400 font-semibold tabular-nums w-7 text-right">{{ m.ph }}%</span>
-        <div class="flex-1 h-1 rounded-full overflow-hidden flex">
-          <div class="bg-blue-500 h-full" style="width:{{ m.ph }}%"></div>
-          <div class="bg-[#374151] h-full" style="width:{{ m.pd }}%"></div>
-          <div class="bg-amber-500 h-full" style="width:{{ m.pa }}%"></div>
+        <div class="flex-1 h-1 rounded-full overflow-hidden flex bar-strip"
+             data-ph="{{ m.ph }}" data-pd="{{ m.pd }}" data-pa="{{ m.pa }}">
+          <div class="bg-blue-500 h-full"></div>
+          <div class="bg-[#374151] h-full"></div>
+          <div class="bg-amber-500 h-full"></div>
         </div>
         <span class="text-[11px] text-amber-400 font-semibold tabular-nums w-7">{{ m.pa }}%</span>
       </div>
@@ -105,4 +106,15 @@
 </section>
 {% endif %}
 
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('.bar-strip').forEach(el => {
+  const bars = el.children;
+  bars[0].style.flex = el.dataset.ph;
+  bars[1].style.flex = el.dataset.pd;
+  bars[2].style.flex = el.dataset.pa;
+});
+</script>
 {% endblock %}
