@@ -5,5 +5,12 @@ __pycache__/
 .venv/
 venv/
 
-# Artifact de training — régénéré par python -m ml.pipeline
+# Artefacts de training — régénérés par python -m ml.pipeline
 ml/data/features.csv
+ml/data/wc2026_predictions.csv
+
+# Notebooks checkpoints
+ml/notebooks/.ipynb_checkpoints/
+
+# Fichiers runtime prod (dans PERSISTENT_DIR)
+ml/data/wc_elo_updates.csv
