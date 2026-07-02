@@ -6,6 +6,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import streamlit as st
 import pandas as pd
+import plotly.graph_objects as go
 
 import database
 
@@ -125,3 +126,100 @@ if not phase_df.empty:
         use_container_width=True,
         hide_index=True,
     )
+
+# ── Courbe d'accuracy cumulée ─────────────────────────────────────────────────
+st.divider()
+st.subheader("Accuracy cumulée au fil du tournoi")
+
+
+@st.cache_data(ttl=30)
+def _accuracy_curve() -> pd.DataFrame:
+    fixtures = pd.read_csv(FIXTURES_PATH)[["match_number", "stage", "date"]]
+    with database.get_connection() as conn:
+        rows = conn.execute("""
+            SELECT match_id, is_correct_result
+            FROM predictions
+            WHERE actual_result IS NOT NULL
+        """).fetchall()
+    if not rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(rows, columns=["match_id", "is_correct_result"])
+    df["match_number"] = df["match_id"] - 200_000
+    merged = df.merge(fixtures, on="match_number", how="left").sort_values("date")
+    merged = merged.reset_index(drop=True)
+    merged["match_idx"] = range(1, len(merged) + 1)
+    merged["cumulative_acc"] = merged["is_correct_result"].expanding().mean() * 100
+    return merged
+
+
+curve_df = _accuracy_curve()
+
+if curve_df.empty:
+    st.info("Aucune prédiction résolue pour le moment.")
+else:
+    fig = go.Figure()
+
+    # ── Ligne accuracy cumulée
+    fig.add_trace(go.Scatter(
+        x=curve_df["match_idx"],
+        y=curve_df["cumulative_acc"].round(1),
+        mode="lines",
+        name="Accuracy cumulée",
+        line=dict(color="#1f77b4", width=2),
+        hovertemplate="%{y:.1f}%<extra></extra>",
+    ))
+
+    # ── Dots par match (vert = correct, rouge = incorrect)
+    for correct, color, label in ((1, "#2ecc71", "Correct"), (0, "#e74c3c", "Incorrect")):
+        mask = curve_df["is_correct_result"] == correct
+        fig.add_trace(go.Scatter(
+            x=curve_df.loc[mask, "match_idx"],
+            y=curve_df.loc[mask, "cumulative_acc"].round(1),
+            mode="markers",
+            name=label,
+            marker=dict(color=color, size=7),
+            hovertemplate=(
+                curve_df.loc[mask, "date"].astype(str)
+                + "<br>"
+                + f"{'✅' if correct else '❌'}"
+                + "<extra></extra>"
+            ),
+        ))
+
+    # ── Baseline 33.3%
+    fig.add_hline(
+        y=33.3,
+        line_dash="dot",
+        line_color="gray",
+        annotation_text="Baseline aléatoire (33%)",
+        annotation_position="bottom right",
+    )
+
+    # ── Marqueurs de transition de phase
+    stage_starts = (
+        curve_df.groupby("stage")["match_idx"].min()
+        .reindex([s for s in STAGE_ORDER if s != "Group Stage"])
+        .dropna()
+    )
+    for stage, idx in stage_starts.items():
+        fig.add_vline(
+            x=idx - 0.5,
+            line_dash="dash",
+            line_color="rgba(255,255,255,0.3)",
+            annotation_text=stage,
+            annotation_position="top left",
+            annotation_font_size=10,
+        )
+
+    fig.update_layout(
+        xaxis_title="Nème prédiction résolue",
+        yaxis_title="Accuracy cumulée (%)",
+        yaxis=dict(range=[0, 100]),
+        legend=dict(orientation="h", y=-0.2),
+        margin=dict(t=20, b=40),
+        height=400,
+        hovermode="x unified",
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+    st.caption(f"Chaque point = un match joué · {len(curve_df)} prédictions résolues au total")
