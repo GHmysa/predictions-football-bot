@@ -1,0 +1,26 @@
+/* Minimal custom additions to Tailwind — keep this small */
+
+/* Smooth scrolling */
+html { scroll-behavior: smooth; }
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #0f172a; }
+::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+/* Progress bar animation */
+@keyframes grow-bar {
+  from { width: 0 !important; }
+}
+[style*="width"] {
+  animation: grow-bar 0.6s ease-out;
+}
+
+/* Table hover rows */
+tr:hover td { background-color: rgba(255, 255, 255, 0.03); }
+
+/* Form inputs — remove number spinners */
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+input[type=number] { -moz-appearance: textfield; }

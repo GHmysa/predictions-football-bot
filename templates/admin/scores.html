@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block title %}Scores — Admin WC 2026{% endblock %}
+
+{% block content %}
+
+<div class="flex items-center justify-between mb-8 flex-wrap gap-4">
+  <div>
+    <a href="/admin" class="text-xs text-slate-500 hover:text-slate-300 transition-colors">← Admin</a>
+    <h1 class="text-3xl font-extrabold text-white mt-1">Saisie des <span class="text-amber-400">scores</span></h1>
+  </div>
+</div>
+
+{# Flash messages #}
+{% if success %}
+<div class="mb-6 bg-green-900/30 border border-green-700/50 rounded-xl px-5 py-3 text-green-300 text-sm flex items-center gap-2">
+  <span>✅</span> {{ success }}
+</div>
+{% endif %}
+{% if error %}
+<div class="mb-6 bg-red-900/30 border border-red-700/50 rounded-xl px-5 py-3 text-red-300 text-sm flex items-center gap-2">
+  <span>❌</span> {{ error }}
+</div>
+{% endif %}
+
+{% if missing %}
+<div class="space-y-3">
+  <p class="text-sm text-slate-400 mb-4">{{ missing | length }} score(s) manquant(s) :</p>
+  {% for m in missing %}
+  <div class="bg-slate-900 rounded-2xl border border-slate-800 p-5">
+    <form method="POST" action="/admin/scores" class="flex items-center gap-4 flex-wrap">
+      <input type="hidden" name="match_number" value="{{ m.match_number }}">
+
+      <div class="flex-1 min-w-[200px]">
+        <div class="flex items-center gap-2 mb-1">
+          <span class="text-xs text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded-full">{{ m.stage }}</span>
+          <span class="text-xs text-slate-500">{{ m.date }}</span>
+          <span class="text-xs text-slate-600">· #{{ m.match_number }}</span>
+        </div>
+        <div class="font-bold text-white text-base">{{ m.home_team }} <span class="text-slate-500">vs</span> {{ m.away_team }}</div>
+      </div>
+
+      <div class="flex items-center gap-2 shrink-0">
+        <input type="number" name="home_score" min="0" max="20" required
+          class="w-14 bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-center text-lg font-bold focus:outline-none focus:border-amber-500 transition-colors"
+          placeholder="0">
+        <span class="text-slate-500 text-lg font-bold">–</span>
+        <input type="number" name="away_score" min="0" max="20" required
+          class="w-14 bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-center text-lg font-bold focus:outline-none focus:border-amber-500 transition-colors"
+          placeholder="0">
+        <button type="submit"
+          class="ml-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black font-semibold rounded-lg text-sm transition-colors">
+          Enregistrer
+        </button>
+      </div>
+    </form>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="text-center py-20">
+  <div class="text-6xl mb-4">✅</div>
+  <p class="text-slate-400 text-lg">Tous les scores des matchs joués sont enregistrés.</p>
+</div>
+{% endif %}
+
+{% endblock %}

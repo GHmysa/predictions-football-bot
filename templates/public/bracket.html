@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% set active = "bracket" %}
+
+{% block title %}Bracket KO — WC 2026{% endblock %}
+
+{% block content %}
+
+<div class="mb-8">
+  <h1 class="text-3xl font-extrabold text-white mb-2">Bracket <span class="text-amber-400">KO</span></h1>
+  <p class="text-slate-400">Phases à élimination directe de la Coupe du Monde 2026.</p>
+</div>
+
+{% if stages %}
+  {% for stage in stages %}
+  <div class="mb-10">
+    <h2 class="text-sm font-semibold text-amber-400 uppercase tracking-widest mb-4 flex items-center gap-3">
+      <span>{{ stage.label }}</span>
+      <div class="flex-1 h-px bg-amber-400/20"></div>
+    </h2>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+      {% for m in stage.matches %}
+      <div class="bg-slate-900 rounded-xl border {% if m.played %}border-green-800/40{% elif m.tba %}border-slate-800/60{% else %}border-slate-800{% endif %} overflow-hidden">
+
+        {# Played match #}
+        {% if m.played %}
+        <div class="flex items-center">
+          <div class="flex-1 px-4 py-3 {% if m.home_won %}bg-green-900/20{% endif %}">
+            <div class="font-semibold text-sm {% if m.home_won %}text-white{% else %}text-slate-400{% endif %}">{{ m.home }}</div>
+          </div>
+          <div class="px-3 text-center shrink-0">
+            <div class="font-bold text-lg {% if m.home_won %}text-green-400{% elif m.draw %}text-slate-300{% else %}text-orange-400{% endif %}">
+              {{ m.hs }}–{{ m.as_ }}
+            </div>
+            {% if m.draw %}
+            <div class="text-xs text-slate-600">pen.</div>
+            {% endif %}
+          </div>
+          <div class="flex-1 px-4 py-3 text-right {% if not m.home_won and not m.draw %}bg-orange-900/20{% endif %}">
+            <div class="font-semibold text-sm {% if not m.home_won and not m.draw %}text-white{% else %}text-slate-400{% endif %}">{{ m.away }}</div>
+          </div>
+        </div>
+
+        {# TBA match #}
+        {% elif m.tba %}
+        <div class="px-4 py-3 flex items-center justify-between gap-2">
+          <span class="text-slate-600 text-sm italic">À définir</span>
+          <span class="text-xs text-slate-700">{{ m.date }}</span>
+        </div>
+
+        {# Upcoming match #}
+        {% else %}
+        <div class="flex items-center justify-between px-4 py-3">
+          <div class="font-medium text-white text-sm truncate flex-1">{{ m.home }}</div>
+          <div class="text-xs text-slate-500 px-2 shrink-0">{{ m.date }}</div>
+          <div class="font-medium text-white text-sm truncate flex-1 text-right">{{ m.away }}</div>
+        </div>
+        {% endif %}
+
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+{% else %}
+<div class="text-center py-20 text-slate-500">
+  <div class="text-6xl mb-4">🏆</div>
+  <p class="text-lg">Les phases KO ne sont pas encore définies.</p>
+</div>
+{% endif %}
+
+{% endblock %}

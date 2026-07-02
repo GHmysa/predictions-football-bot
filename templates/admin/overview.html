@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block title %}Admin — WC 2026{% endblock %}
+
+{% block content %}
+
+<div class="flex items-center justify-between mb-8 flex-wrap gap-4">
+  <div>
+    <div class="text-xs text-amber-400 font-medium uppercase tracking-widest mb-1">Administration</div>
+    <h1 class="text-3xl font-extrabold text-white">Vue d'ensemble</h1>
+  </div>
+  <div class="flex gap-2">
+    <a href="/admin/scores" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors">Scores</a>
+    <a href="/admin/fixtures" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm font-medium transition-colors">Fixtures</a>
+    <a href="/admin/metrics" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm font-medium transition-colors">Métriques</a>
+  </div>
+</div>
+
+{# Stats cards #}
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
+  <div class="bg-slate-900 rounded-2xl border border-slate-800 p-5">
+    <div class="text-xs text-slate-500 uppercase tracking-widest mb-2">Matchs joués</div>
+    <div class="text-4xl font-extrabold text-white">{{ n_results }}</div>
+  </div>
+  <div class="bg-slate-900 rounded-2xl border border-slate-800 p-5">
+    <div class="text-xs text-slate-500 uppercase tracking-widest mb-2">Prédictions</div>
+    <div class="text-4xl font-extrabold text-white">{{ n_preds }}</div>
+  </div>
+  <div class="bg-slate-900 rounded-2xl border border-slate-800 p-5">
+    <div class="text-xs text-slate-500 uppercase tracking-widest mb-2">Résolues</div>
+    <div class="text-4xl font-extrabold {% if stats.total > 0 %}text-amber-400{% else %}text-slate-600{% endif %}">
+      {{ stats.total }}
+    </div>
+  </div>
+  <div class="bg-slate-900 rounded-2xl border border-slate-800 p-5">
+    <div class="text-xs text-slate-500 uppercase tracking-widest mb-2">Accuracy</div>
+    <div class="text-4xl font-extrabold {% if stats.total > 0 %}text-green-400{% else %}text-slate-600{% endif %}">
+      {% if stats.total > 0 %}{{ stats.result_rate }}%{% else %}—{% endif %}
+    </div>
+  </div>
+</div>
+
+{# Accuracy breakdown #}
+{% if stats.total > 0 %}
+<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
+  <div class="bg-slate-900 rounded-2xl border border-slate-800 p-5 text-center">
+    <div class="text-sm text-slate-500 mb-1">Exact score</div>
+    <div class="text-2xl font-bold text-blue-400">{{ stats.exact_rate }}%</div>
+    <div class="text-xs text-slate-600 mt-1">{{ stats.correct_exact }} / {{ stats.total }}</div>
+  </div>
+  <div class="bg-slate-900 rounded-2xl border border-slate-800 p-5 text-center">
+    <div class="text-sm text-slate-500 mb-1">Résultat correct</div>
+    <div class="text-2xl font-bold text-green-400">{{ stats.result_rate }}%</div>
+    <div class="text-xs text-slate-600 mt-1">{{ stats.correct_results }} / {{ stats.total }}</div>
+  </div>
+  <div class="bg-slate-900 rounded-2xl border border-slate-800 p-5 text-center">
+    <div class="text-sm text-slate-500 mb-1">Prédictions en attente</div>
+    <div class="text-2xl font-bold text-amber-400">{{ n_preds - stats.total }}</div>
+    <div class="text-xs text-slate-600 mt-1">matchs non encore joués</div>
+  </div>
+</div>
+{% endif %}
+
+{# Poisson params summary #}
+{% if params %}
+<div class="bg-slate-900 rounded-2xl border border-slate-800 p-6">
+  <h2 class="text-base font-bold text-white mb-4">Paramètres Poisson (Dixon-Coles)</h2>
+  <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+    <div class="bg-slate-800 rounded-xl p-3">
+      <div class="text-xs text-slate-500 mb-1">Avantage domicile</div>
+      <div class="font-mono font-bold text-amber-400">{{ "%.3f" | format(params.get("home_adv", 0)) }}</div>
+    </div>
+    <div class="bg-slate-800 rounded-xl p-3">
+      <div class="text-xs text-slate-500 mb-1">Rho (Dixon-Coles)</div>
+      <div class="font-mono font-bold text-blue-400">{{ "%.4f" | format(params.get("rho", 0)) }}</div>
+    </div>
+    <div class="bg-slate-800 rounded-xl p-3">
+      <div class="text-xs text-slate-500 mb-1">Nb paramètres</div>
+      <div class="font-mono font-bold text-slate-300">{{ params | length }}</div>
+    </div>
+  </div>
+  <a href="/admin/metrics" class="mt-4 inline-block text-sm text-amber-400 hover:text-amber-300 transition-colors">
+    Voir toutes les métriques →
+  </a>
+</div>
+{% endif %}
+
+{% endblock %}

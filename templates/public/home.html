@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% set active = "home" %}
+
+{% block title %}WC 2026 — Prédictions ML{% endblock %}
+
+{% block content %}
+
+{# ── Hero ── #}
+<div class="text-center mb-12">
+  <div class="inline-flex items-center gap-2 bg-amber-500/10 border border-amber-500/20 rounded-full px-4 py-1.5 text-amber-400 text-sm font-medium mb-4">
+    <span class="w-2 h-2 bg-amber-400 rounded-full animate-pulse"></span>
+    Tournoi en cours · Données en temps réel
+  </div>
+  <h1 class="text-4xl sm:text-5xl font-extrabold text-white mb-3">
+    Coupe du Monde <span class="text-amber-400">2026</span>
+  </h1>
+  <p class="text-slate-400 text-lg max-w-xl mx-auto">
+    Prédictions ML basées sur les ELO, la forme récente et 150 ans de données de football international.
+  </p>
+
+  {# Accuracy badge #}
+  {% if stats.total > 0 %}
+  <div class="mt-6 inline-flex items-center gap-6 bg-slate-900 border border-slate-800 rounded-2xl px-8 py-4">
+    <div class="text-center">
+      <div class="text-3xl font-bold text-white">{{ stats.result_rate }}%</div>
+      <div class="text-xs text-slate-500 mt-1">Accuracy modèle</div>
+    </div>
+    <div class="w-px h-8 bg-slate-700"></div>
+    <div class="text-center">
+      <div class="text-3xl font-bold text-white">{{ stats.correct_results }}</div>
+      <div class="text-xs text-slate-500 mt-1">Prédictions correctes</div>
+    </div>
+    <div class="w-px h-8 bg-slate-700"></div>
+    <div class="text-center">
+      <div class="text-3xl font-bold text-white">{{ stats.total }}</div>
+      <div class="text-xs text-slate-500 mt-1">Matchs analysés</div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+{# ── Upcoming matches ── #}
+{% if matches %}
+<div class="mb-12">
+  <h2 class="text-xl font-bold text-white mb-5 flex items-center gap-2">
+    <span class="text-amber-400">📅</span> Prochains matchs
+  </h2>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    {% for m in matches %}
+    <div class="bg-slate-900 rounded-2xl border border-slate-800 p-5 hover:border-amber-500/30 transition-colors">
+
+      {# Stage + date #}
+      <div class="flex items-center justify-between mb-4">
+        <span class="text-xs font-medium text-amber-400 bg-amber-400/10 px-2.5 py-1 rounded-full">
+          {{ m.stage }}
+        </span>
+        <span class="text-xs text-slate-500">{{ m.date }}</span>
+      </div>
+
+      {# Teams + predicted score #}
+      <div class="flex items-center gap-3 mb-5">
+        <div class="flex-1 text-right">
+          <div class="font-bold text-white text-base leading-tight">{{ m.home }}</div>
+          {% if m.prediction == "home" %}
+          <div class="text-xs text-amber-400 mt-0.5">favori ⭐</div>
+          {% endif %}
+        </div>
+        <div class="text-center px-3">
+          <div class="text-xl font-extrabold text-slate-300">{{ m.score_home }}–{{ m.score_away }}</div>
+          <div class="text-xs text-slate-600 mt-0.5">prédit</div>
+        </div>
+        <div class="flex-1">
+          <div class="font-bold text-white text-base leading-tight">{{ m.away }}</div>
+          {% if m.prediction == "away" %}
+          <div class="text-xs text-amber-400 mt-0.5">favori ⭐</div>
+          {% endif %}
+        </div>
+      </div>
+
+      {# Probability bars #}
+      <div class="space-y-2.5">
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-slate-500 w-14 truncate text-right">{{ m.home[:10] }}</span>
+          <div class="flex-1 bg-slate-800 rounded-full h-2 overflow-hidden">
+            <div class="bg-blue-500 h-full rounded-full transition-all" style="width: {{ m.ph }}%"></div>
+          </div>
+          <span class="text-xs font-semibold text-blue-400 w-8 text-right">{{ m.ph }}%</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-slate-500 w-14 text-right">Nul</span>
+          <div class="flex-1 bg-slate-800 rounded-full h-2 overflow-hidden">
+            <div class="bg-slate-500 h-full rounded-full transition-all" style="width: {{ m.pd }}%"></div>
+          </div>
+          <span class="text-xs font-semibold text-slate-400 w-8 text-right">{{ m.pd }}%</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-slate-500 w-14 truncate text-right">{{ m.away[:10] }}</span>
+          <div class="flex-1 bg-slate-800 rounded-full h-2 overflow-hidden">
+            <div class="bg-orange-500 h-full rounded-full transition-all" style="width: {{ m.pa }}%"></div>
+          </div>
+          <span class="text-xs font-semibold text-orange-400 w-8 text-right">{{ m.pa }}%</span>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% else %}
+<div class="text-center py-16 text-slate-500">
+  <div class="text-5xl mb-4">🏆</div>
+  <p>Aucun match à venir avec des équipes définies pour l'instant.</p>
+</div>
+{% endif %}
+
+{# ── Recent results ── #}
+{% if recent %}
+<div>
+  <h2 class="text-xl font-bold text-white mb-5 flex items-center gap-2">
+    <span class="text-green-400">✅</span> Derniers résultats
+  </h2>
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+    {% for r in recent %}
+    <div class="bg-slate-900 rounded-xl border border-slate-800 px-4 py-3 flex items-center justify-between gap-3">
+      <span class="font-medium text-white text-sm flex-1 text-right truncate">{{ r.home }}</span>
+      <span class="font-bold text-green-400 text-base shrink-0">{{ r.hs }}–{{ r.as_ }}</span>
+      <span class="font-medium text-white text-sm flex-1 truncate">{{ r.away }}</span>
+      <span class="text-xs text-slate-600 shrink-0">{{ r.date }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

@@ -50,5 +50,5 @@ col4.metric("Poisson — matchs fit", params["n_matches"])
 st.divider()
 st.markdown(
     "Naviguez via le menu de gauche :  \n"
-    "**📊 Prédictions** · **📈 Métriques** · **⚽ Scores** · **🏆 ELO**"
+    "**📊 Prédictions** · **📈 Métriques** · **⚽ Scores** · **🏆 ELO** · **📅 Fixtures**"
 )
